@@ -13,3 +13,7 @@ TIME_LIST = [
 ]
 
 SECTION_TYPE_WEIGHTS = {"L": 1.0, "R": 0.5}
+
+# Weight for same-course preference objective term (pref == 1).
+# Penalty per distinct course taught; ~= value of one top-preference assignment.
+SAME_COURSE_BONUS_WEIGHT = 0.3

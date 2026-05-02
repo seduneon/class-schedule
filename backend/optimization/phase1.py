@@ -19,8 +19,9 @@ from typing import TYPE_CHECKING
 import pulp
 from pulp import LpMaximize, LpProblem, LpStatus, LpVariable, lpSum, value
 
-from config import PENALTY_WEIGHT
+from config import PENALTY_WEIGHT, SAME_COURSE_BONUS_WEIGHT
 from models.schedule import Phase1Assignment, Phase1Result
+from optimization.constraints.custom import SameCoursePreferenceConstraint
 from optimization.constraints.preferences import (
     MultiSectionConstraint,
     PreferredCoursesLoadConstraint,
@@ -101,6 +102,15 @@ def solve_phase1(repo: "SchedulingDataRepository") -> Phase1Result:
         lowBound=0,
     )
 
+    # y_distinct_courses[i,j] = 1 iff professor i teaches >= 1 section of course j.
+    # Only for professors who prefer to concentrate on one course (pref == 1).
+    same_course_prefs = {i for i in professors_list if two_section_pref.get(i, 0) == 1}
+    y_distinct_courses = LpVariable.dicts(
+        "y_distinct",
+        ((i, j) for i in same_course_prefs for j in course_list),
+        cat="Binary",
+    )
+
     # -------------------------------------------------------------------
     # Build model
     # -------------------------------------------------------------------
@@ -125,6 +135,13 @@ def solve_phase1(repo: "SchedulingDataRepository") -> Phase1Result:
             for j in course_list
             if two_section_pref.get(i, 0) == -1 and (i, j) in multi_section_relax
         )
+        - SAME_COURSE_BONUS_WEIGHT
+        * lpSum(
+            y_distinct_courses[i, j]
+            for i in same_course_prefs
+            for j in course_list
+            if (i, j) in y_distinct_courses
+        )
     )
 
     # -------------------------------------------------------------------
@@ -136,6 +153,7 @@ def solve_phase1(repo: "SchedulingDataRepository") -> Phase1Result:
         "section_relax": section_relax,
         "preferred_relax": preferred_relax,
         "multi_section_relax": multi_section_relax,
+        "y_distinct_courses": y_distinct_courses,
     }
     data = {
         "professors_list": professors_list,
@@ -161,6 +179,7 @@ def solve_phase1(repo: "SchedulingDataRepository") -> Phase1Result:
         PreferredCoursesOnlyConstraint(),
         PreferredCoursesLoadConstraint(),
         MultiSectionConstraint(),
+        SameCoursePreferenceConstraint(),
     ]
     for constraint in constraints:
         constraint.apply(prob, variables, data)

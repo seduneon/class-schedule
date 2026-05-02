@@ -769,3 +769,240 @@ class TestNoProfDoubleBookingConstraint:
         assert status == "Optimal"
         total = sum(value(x[c, t]) for c in courses for t in timeslots)
         assert total == pytest.approx(2.0)
+
+
+# ---------------------------------------------------------------------------
+# SameCoursePreferenceConstraint
+# ---------------------------------------------------------------------------
+
+
+class TestSameCoursePreferenceConstraint:
+    """
+    Professor with pref==1 should be nudged toward teaching multiple sections
+    of the same course rather than one section of each of several courses.
+    """
+
+    def test_y_forced_to_one_when_section_assigned(self):
+        """
+        y[i,j] >= x[i,j,k]: if x=1 then y must be 1.
+        """
+        from optimization.constraints.custom import SameCoursePreferenceConstraint
+
+        profs = ["Smith"]
+        courses = ["MATH301"]
+        course_dict = {"MATH301": 1}
+        two_section_pref = {"Smith": 1}
+
+        x = LpVariable.dicts(
+            "x",
+            [("Smith", "MATH301", 0)],
+            cat="Binary",
+        )
+        y = LpVariable.dicts(
+            "y_distinct",
+            [("Smith", "MATH301")],
+            cat="Binary",
+        )
+
+        prob = LpProblem("test", LpMaximize)
+        prob += x["Smith", "MATH301", 0]
+        prob += x["Smith", "MATH301", 0] == 1  # force assignment
+
+        constraint = SameCoursePreferenceConstraint()
+        constraint.apply(
+            prob,
+            variables={"x": x, "y_distinct_courses": y},
+            data={
+                "assigned_slots": set(),
+                "assigned_dict": {},
+                "professors_list": profs,
+                "course_list": courses,
+                "course_dict": course_dict,
+                "two_section_pref": two_section_pref,
+            },
+        )
+
+        _solve(prob)
+        assert value(y["Smith", "MATH301"]) == pytest.approx(1.0)
+
+    def test_y_zero_when_no_section_assigned(self):
+        """
+        When x=0 (no section assigned), objective drives y to 0.
+        """
+        from optimization.constraints.custom import SameCoursePreferenceConstraint
+
+        profs = ["Smith"]
+        courses = ["MATH301"]
+        course_dict = {"MATH301": 1}
+        two_section_pref = {"Smith": 1}
+
+        x = LpVariable.dicts(
+            "x",
+            [("Smith", "MATH301", 0)],
+            cat="Binary",
+        )
+        y = LpVariable.dicts(
+            "y_distinct",
+            [("Smith", "MATH301")],
+            cat="Binary",
+        )
+
+        prob = LpProblem("test", LpMaximize)
+        # Penalize y — solver will set y=0 unless forced
+        prob += -10 * y["Smith", "MATH301"]
+        prob += x["Smith", "MATH301", 0] == 0  # no assignment
+
+        constraint = SameCoursePreferenceConstraint()
+        constraint.apply(
+            prob,
+            variables={"x": x, "y_distinct_courses": y},
+            data={
+                "assigned_slots": set(),
+                "assigned_dict": {},
+                "professors_list": profs,
+                "course_list": courses,
+                "course_dict": course_dict,
+                "two_section_pref": two_section_pref,
+            },
+        )
+
+        _solve(prob)
+        assert value(y["Smith", "MATH301"]) == pytest.approx(0.0)
+
+    def test_same_course_preferred_over_distinct(self):
+        """
+        Prof with pref==1, load=2, two courses each with 2 sections.
+        Objective penalizes distinct-course count heavily.
+        Solver should assign both sections to one course (y sum = 1, not 2).
+        """
+        from optimization.constraints.custom import SameCoursePreferenceConstraint
+
+        profs = ["Smith"]
+        courses = ["MATH301", "MATH302"]
+        course_dict = {"MATH301": 2, "MATH302": 2}
+        two_section_pref = {"Smith": 1}
+        W = 10.0  # large weight to guarantee same-course choice
+
+        x = LpVariable.dicts(
+            "x",
+            [(i, j, k) for i in profs for j in courses for k in range(course_dict[j])],
+            cat="Binary",
+        )
+        y = LpVariable.dicts(
+            "y_distinct",
+            [(i, j) for i in profs for j in courses],
+            cat="Binary",
+        )
+
+        prob = LpProblem("test", LpMaximize)
+        # Maximize assignments, heavily penalize distinct courses
+        prob += lpSum(x.values()) - W * lpSum(y.values())
+
+        # Load = 2
+        prob += lpSum(x.values()) == 2
+
+        # One professor per section
+        for j in courses:
+            for k in range(course_dict[j]):
+                prob += lpSum(x[i, j, k] for i in profs) <= 1
+
+        constraint = SameCoursePreferenceConstraint()
+        constraint.apply(
+            prob,
+            variables={"x": x, "y_distinct_courses": y},
+            data={
+                "assigned_slots": set(),
+                "assigned_dict": {},
+                "professors_list": profs,
+                "course_list": courses,
+                "course_dict": course_dict,
+                "two_section_pref": two_section_pref,
+            },
+        )
+
+        status = _solve(prob)
+        assert status == "Optimal"
+        # Should teach both sections of one course: distinct count = 1
+        y_sum = sum(value(y[i, j]) for i in profs for j in courses)
+        assert y_sum == pytest.approx(1.0)
+
+    def test_neutral_prof_not_constrained(self):
+        """
+        Prof with pref==0 is unaffected — no y variables created for them.
+        """
+        from optimization.constraints.custom import SameCoursePreferenceConstraint
+
+        profs = ["Jones"]
+        courses = ["MATH301", "MATH302"]
+        course_dict = {"MATH301": 1, "MATH302": 1}
+        two_section_pref = {"Jones": 0}
+
+        x = LpVariable.dicts(
+            "x",
+            [(i, j, k) for i in profs for j in courses for k in range(course_dict[j])],
+            cat="Binary",
+        )
+        # No y vars for neutral prof
+        y = {}
+
+        prob = LpProblem("test", LpMaximize)
+        prob += lpSum(x.values())
+
+        constraint = SameCoursePreferenceConstraint()
+        # Should add zero constraints and not crash
+        constraint.apply(
+            prob,
+            variables={"x": x, "y_distinct_courses": y},
+            data={
+                "assigned_slots": set(),
+                "assigned_dict": {},
+                "professors_list": profs,
+                "course_list": courses,
+                "course_dict": course_dict,
+                "two_section_pref": two_section_pref,
+            },
+        )
+
+        status = _solve(prob)
+        assert status == "Optimal"
+
+    def test_preassigned_course_forces_y_one(self):
+        """
+        When a professor is pre-assigned to a course, y[i,j] must be 1
+        even if no new x variable is created for that course.
+        """
+        from optimization.constraints.custom import SameCoursePreferenceConstraint
+
+        profs = ["Smith"]
+        courses = ["MATH301"]
+        course_dict = {"MATH301": 1}
+        two_section_pref = {"Smith": 1}
+        assigned_dict = {"Smith": {"MATH301": [0]}}
+        assigned_slots = {("Smith", "MATH301", 0)}
+
+        x = {}  # no new x vars — section already pre-assigned
+        y = LpVariable.dicts(
+            "y_distinct",
+            [("Smith", "MATH301")],
+            cat="Binary",
+        )
+
+        prob = LpProblem("test", LpMaximize)
+        prob += -10 * y["Smith", "MATH301"]  # penalize y — constraint must override
+
+        constraint = SameCoursePreferenceConstraint()
+        constraint.apply(
+            prob,
+            variables={"x": x, "y_distinct_courses": y},
+            data={
+                "assigned_slots": assigned_slots,
+                "assigned_dict": assigned_dict,
+                "professors_list": profs,
+                "course_list": courses,
+                "course_dict": course_dict,
+                "two_section_pref": two_section_pref,
+            },
+        )
+
+        _solve(prob)
+        assert value(y["Smith", "MATH301"]) == pytest.approx(1.0)
