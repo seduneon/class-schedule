@@ -45,3 +45,12 @@ def test_a2_ablation_pair() -> None:
     off, on = ablation_a(inst, "A2", on_mode="soft")
     assert off == ["P teaches 2 units, above the maximum 1"]
     assert on == []
+
+
+def test_a2_uses_offering_units_not_edited_ones(tiny: Instance) -> None:
+    from dataclasses import replace
+
+    sol = Solution((*tiny_assignments(tiny)[:3], asg(tiny, "A", "MATH361", "1L")))
+    hidden = Solution(tuple(replace(a, units=0.0) for a in sol.assignments))
+    vs = [v for v in validate(tiny, hidden, Config(), ids=["A2"]) if v.entities == ("A",)]
+    assert vs and vs[0].severity == "error"  # A still teaches 3 offered units

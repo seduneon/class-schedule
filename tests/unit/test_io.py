@@ -152,3 +152,21 @@ def test_assignments_and_solution_roundtrip(tmp_path: Path) -> None:
     again = read_solution(tmp_path / "s.json")
     assert again.assignments == (a,) and again.placements == (p,)
     assert again.meta == {"status": "optimal"}
+
+
+def test_bad_solution_file_gives_entry_level_errors(tmp_path: Path) -> None:
+    path = tmp_path / "s.json"
+    path.write_text(
+        '{"assignments": [{"professor_id": "A", "course_id": "M", "section_type": "Q",'
+        ' "section_label": "1L", "capacity": 1, "units": 1, "source": "xx"}],'
+        ' "placements": [{"course_id": "M"}]}'
+    )
+    with pytest.raises(InputError) as exc:
+        read_solution(path)
+    text = str(exc.value)
+    assert "solution assignments row 1: section_type" in text
+    assert "solution assignments row 1: source" in text
+    assert "solution placements row 1: pattern_id: Field required" in text
+    path.write_text("{not json")
+    with pytest.raises(InputError, match="not valid JSON"):
+        read_solution(path)

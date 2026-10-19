@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import TypeVar
 
 import pandas as pd
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 
 from scheduler.domain import (
     Assignment,
@@ -26,7 +26,6 @@ from scheduler.domain import (
     SectionLink,
     SectionType,
     Solution,
-    Source,
     StageAPin,
     StageBPin,
     TimePattern,
@@ -42,6 +41,7 @@ from scheduler.io.schemas import (
     CoursePreferenceRow,
     OfferingRow,
     PinRow,
+    PlacementRow,
     PreAssignmentRow,
     ProfessorRow,
     RoomAvailabilityRow,
@@ -105,9 +105,14 @@ def load_tables(path: Path) -> dict[str, list[dict[str, object]]]:
 
 
 def parse_rows[R: Row](
-    table: str, records: list[dict[str, object]], schema: type[R], errors: list[RowError]
+    table: str,
+    records: Sequence[object],
+    schema: type[R],
+    errors: list[RowError],
+    first_row: int = 2,
 ) -> list[R]:
-    """Validate each record; collect row-level errors (row numbers as in the file, header = 1)."""
+    """Validate each record; collect row-level errors (row numbers as in the file, header = 1;
+    JSON lists pass ``first_row=1`` to number entries from 1)."""
     rows: list[R] = []
     for i, rec in enumerate(records):
         try:
@@ -115,7 +120,7 @@ def parse_rows[R: Row](
         except ValidationError as exc:
             for err in exc.errors():
                 loc = ".".join(str(x) for x in err["loc"]) or "row"
-                errors.append(RowError(table, i + 2, f"{loc}: {err['msg']}"))
+                errors.append(RowError(table, i + first_row, f"{loc}: {err['msg']}"))
     return rows
 
 
@@ -322,48 +327,65 @@ def read_assignments(path: Path | str) -> tuple[Assignment, ...]:
     )
 
 
-class _SolutionFile(BaseModel):
-    assignments: list[dict[str, object]]
-    placements: list[dict[str, object]] | None = None
-    meta: dict[str, object] = {}
-
-
 def solution_from_dict(data: dict[str, object]) -> Solution:
-    """Parse the canonical JSON solution format (SPEC L6)."""
-    raw = _SolutionFile.model_validate(data)
+    """Parse the canonical JSON solution format (SPEC L6); every bad entry is reported."""
+    errors: list[RowError] = []
+    raw_assignments = data.get("assignments")
+    raw_placements = data.get("placements")
+    raw_meta = data.get("meta", {})
+    if not isinstance(raw_assignments, list):
+        errors.append(RowError("solution", None, "'assignments' must be a list"))
+        raw_assignments = []
+    if raw_placements is not None and not isinstance(raw_placements, list):
+        errors.append(RowError("solution", None, "'placements' must be a list or null"))
+        raw_placements = []
+    if not isinstance(raw_meta, dict):
+        errors.append(RowError("solution", None, "'meta' must be an object"))
+        raw_meta = {}
+    rows = parse_rows("solution assignments", raw_assignments, AssignmentRow, errors, 1)
+    places = (
+        None
+        if raw_placements is None
+        else parse_rows("solution placements", raw_placements, PlacementRow, errors, 1)
+    )
+    if errors:
+        raise InputError(errors)
     assignments = tuple(
         Assignment(
-            professor_id=str(a["professor_id"]),
-            course_id=str(a["course_id"]),
-            section_type=SectionType(str(a["section_type"])),
-            section_label=str(a["section_label"]),
-            capacity=int(str(a["capacity"])),
-            units=float(str(a["units"])),
-            source=Source(str(a.get("source", "manual"))),
+            r.professor_id,
+            r.course_id,
+            r.section_type,
+            r.section_label,
+            r.capacity,
+            r.units,
+            r.source,
         )
-        for a in raw.assignments
+        for r in rows
     )
     placements = (
         None
-        if raw.placements is None
+        if places is None
         else tuple(
             Placement(
-                course_id=str(p["course_id"]),
-                section_type=SectionType(str(p["section_type"])),
-                section_label=str(p["section_label"]),
-                pattern_id=str(p["pattern_id"]),
-                room_id=str(p["room_id"]),
+                course_id=p.course_id,
+                section_type=p.section_type,
+                section_label=p.section_label,
+                pattern_id=p.pattern_id,
+                room_id=p.room_id,
             )
-            for p in raw.placements
+            for p in places
         )
     )
-    return Solution(assignments, placements, dict(raw.meta))
+    return Solution(assignments, placements, {str(k): v for k, v in raw_meta.items()})
 
 
 def read_solution(path: Path | str) -> Solution:
     """Read a JSON solution file."""
     with Path(path).open(encoding="utf-8") as fh:
-        data = json.load(fh)
+        try:
+            data = json.load(fh)
+        except json.JSONDecodeError as exc:
+            raise InputError([RowError(str(path), None, f"not valid JSON: {exc}")]) from exc
     if not isinstance(data, dict):
-        raise ValueError(f"{path}: expected a JSON object")
+        raise InputError([RowError(str(path), None, "expected a JSON object")])
     return solution_from_dict(data)

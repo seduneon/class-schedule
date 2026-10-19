@@ -291,6 +291,14 @@ class AssignmentRow(Row):
     _ints = field_validator("capacity", mode="before")(lambda v: _int(v))
 
 
+class PlacementRow(Row):
+    course_id: str
+    section_type: SectionType
+    section_label: str
+    pattern_id: str
+    room_id: str
+
+
 TABLES: dict[str, type[Row]] = {
     "professors": ProfessorRow,
     "offerings": OfferingRow,

@@ -49,3 +49,13 @@ def test_a1_ablation_pair() -> None:
     )
     off, on = ablation_a(inst, "A1")
     assert off and on == []
+
+
+def test_a1_unknown_professor_is_an_error(tiny: Instance) -> None:
+    from dataclasses import replace
+
+    first, *rest = tiny_assignments(tiny)
+    msgs = _a1(tiny, Solution((replace(first, professor_id="NOPE"), *rest)))
+    assert msgs == ["MATH161-1L is assigned to unknown professor 'NOPE'"]
+    placeholder = replace(first, professor_id="TBA-MATH161")
+    assert _a1(tiny, Solution((placeholder, *rest))) == []

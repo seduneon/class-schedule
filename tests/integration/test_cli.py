@@ -239,3 +239,21 @@ def test_commands_default_to_run_folders(tmp_path: Path) -> None:
     folder = _only_run(runs)
     assert (folder / "assignments.csv").exists()
     assert json.loads((folder / "run.json").read_text())["command"] == "assign"
+
+
+def test_bad_or_missing_files_give_one_line_errors(tmp_path: Path) -> None:
+    bad_yaml = tmp_path / "bad.yaml"
+    bad_yaml.write_text("solver: [unclosed\n")
+    unknown_key = tmp_path / "unknown.yaml"
+    unknown_key.write_text("nope: 1\n")
+    for args in (
+        ["check", str(tmp_path / "missing")],
+        ["timetable", str(TINY), "--assignments", str(tmp_path / "missing.csv")],
+        ["validate", str(TINY), str(tmp_path / "missing.json")],
+        ["check", str(TINY), "-c", str(bad_yaml)],
+        ["check", str(TINY), "-c", str(unknown_key)],
+    ):
+        r = runner.invoke(app, args)
+        assert r.exit_code == 2, (args, r.output)
+        assert r.output.startswith("Error: "), (args, r.output)
+        assert not isinstance(r.exception, Exception) or isinstance(r.exception, SystemExit)

@@ -115,3 +115,17 @@ def test_room_slots_shortfall_with_room_availability() -> None:
     [f] = [f for f in presolve_checks(inst, Config()) if f.code == "room_slots"]
     assert f.severity == "error"
     assert f.message.startswith("2 section(s) need a room with >= 150 seats, but only 1")
+
+
+def test_stage_b_inputs_flag_unknown_professor_and_edited_fields() -> None:
+    from dataclasses import replace
+
+    inst = instance(professors=[prof("P")], offerings=[offering("M101")])
+    good = asg(inst, "P", "M101", "1L")
+    codes = {f.code: f for f in presolve_checks(inst, Config(), [replace(good, professor_id="X")])}
+    assert codes["unknown_id"].severity == "error" and "'X'" in codes["unknown_id"].message
+    placeholder = replace(good, professor_id="TBA-M101")
+    assert "unknown_id" not in _codes(inst, assignments=[placeholder])
+    edited = presolve_checks(inst, Config(), [replace(good, capacity=good.capacity + 5)])
+    mismatch = [f for f in edited if f.code == "assignment_mismatch"]
+    assert len(mismatch) == 1 and mismatch[0].severity == "warning"

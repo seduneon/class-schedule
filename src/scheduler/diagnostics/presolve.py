@@ -474,16 +474,39 @@ def pin_conflicts(instance: Instance, config: Config) -> list[Finding]:
 def stage_b_inputs(
     instance: Instance, config: Config, assignments: Sequence[Assignment]
 ) -> list[Finding]:
-    """Stage B: every assigned section has at least one feasible (pattern, room)."""
+    """Stage B: every hand-off row names an offered section and a known professor (or a
+    TBA placeholder), agrees with the offerings, and has at least one feasible (pattern, room)."""
     out: list[Finding] = []
     for a in assignments:
-        if a.section_key not in instance.section_by_key:
+        sid = f"{a.course_id}-{a.section_label}"
+        if not is_placeholder(a.professor_id) and a.professor_id not in instance.professor_by_id:
+            out.append(
+                Finding(
+                    "error",
+                    "unknown_id",
+                    f"assignments: {sid} is assigned to unknown professor {a.professor_id!r}",
+                    (a.professor_id, sid),
+                )
+            )
+        sec = instance.section_by_key.get(a.section_key)
+        if sec is None:
             out.append(
                 Finding(
                     "error",
                     "unknown_section",
-                    f"assignments: {a.course_id}-{a.section_label} is not an offered section",
+                    f"assignments: {sid} is not an offered section",
                     (a.course_id,),
+                )
+            )
+        elif (a.capacity, a.units) != (sec.capacity, sec.units):
+            out.append(
+                Finding(
+                    "warning",
+                    "assignment_mismatch",
+                    f"assignments: {sid} has capacity {a.capacity}, units {a.units:g} but the "
+                    f"offerings say capacity {sec.capacity}, units {sec.units:g}; the offerings "
+                    "are used (edit offerings to change them)",
+                    (sid,),
                 )
             )
     for sb in stage_b_sections(instance, assignments):

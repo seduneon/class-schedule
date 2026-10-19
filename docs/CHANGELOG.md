@@ -85,3 +85,10 @@ Legacy files arrived (`refall2026mathcourselist/`, git-ignored: names, e-mails, 
 - `scheduler run <instance>`: check → Stage A → Stage B in one step; `--assignments` skips Stage A and records which run the hand-off came from.
 - Each folder gets `run.json` (command, times, status, instance hash, config, git commit/dirty, version, per-stage stats), `config.yaml` (resolved config), `log.txt` (console output) and, for `run`, `check.txt`.
 - `assign`, `timetable`, `report`, `alternatives`, `repair` default to a new run folder instead of `out/`. `runs/` is git-ignored.
+
+## Fixes (2026-10-19)
+- Hand-off rows naming an unknown professor were accepted silently by `check`, `validate` and Stage B. Now an L1 `unknown_id` error and an A1 validator error (`TBA-*` placeholders still allowed).
+- A2 validator summed the hand-off's own `units` column, so a hand-edited value could hide an overload; it now uses the offering units $u_{c,k}$ like the model. Hand-off rows whose capacity/units differ from the offerings get an L1 `assignment_mismatch` warning (the offerings are what Stage B uses).
+- Malformed `solution.json` entries (bad `source`, `section_type`, missing keys, invalid JSON) crashed with a traceback; they are now row-level `InputError`s.
+- CLI: missing files, bad YAML and invalid config give a one-line `Error: ...` and exit code 2 instead of a traceback.
+- CLI no longer claims to have written `timetable.html` for a solution without placements.

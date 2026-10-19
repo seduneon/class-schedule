@@ -2,20 +2,24 @@
 
 from __future__ import annotations
 
+import functools
 import json
 import sys
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Annotated, TextIO
 
 import typer
+import yaml
+from pydantic import ValidationError
 
 from scheduler.config import Config, load_config
 from scheduler.diagnostics import Finding, has_errors, presolve_checks
 from scheduler.domain import Assignment, Instance, Solution
 from scheduler.io import (
     InputError,
+    RowError,
     read_assignments,
     read_instance,
     read_solution,
@@ -95,12 +99,29 @@ def _record(record: RunRecord, result: StageResult) -> None:
     record.add_stage(result.stage, result.status.value, result.stats)
 
 
+USER_ERRORS = (InputError, OSError, yaml.YAMLError, ValidationError)
+
+
+def _user_errors[**P](command: Callable[P, None]) -> Callable[P, None]:
+    """Report bad or missing input files in one red line (exit code 2), not a traceback."""
+
+    @functools.wraps(command)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> None:
+        try:
+            command(*args, **kwargs)
+        except USER_ERRORS as exc:
+            _say(f"Error: {exc}", fg=typer.colors.RED, err=True)
+            raise typer.Exit(2) from exc
+
+    return wrapper
+
+
 def _load(instance_path: Path, config_path: Path | None) -> tuple[Instance, Config]:
     try:
-        return read_instance(instance_path), load_config(config_path)
-    except InputError as exc:
-        _say(str(exc), fg=typer.colors.RED, err=True)
-        raise typer.Exit(2) from exc
+        cfg = load_config(config_path)
+    except ValueError as exc:  # also pydantic ValidationError
+        raise InputError([RowError(str(config_path), None, str(exc))]) from exc
+    return read_instance(instance_path), cfg
 
 
 def _print_findings(findings: Sequence[Finding]) -> None:
@@ -140,6 +161,7 @@ def _print_result(result: StageResult) -> None:
 
 
 @app.command()
+@_user_errors
 def check(
     instance: InstanceArg,
     config: ConfigOpt = None,
@@ -157,6 +179,7 @@ def check(
 
 
 @app.command()
+@_user_errors
 def run(
     instance: InstanceArg,
     config: ConfigOpt = None,
@@ -216,6 +239,7 @@ def _timetable(
 
 
 @app.command()
+@_user_errors
 def assign(
     instance: InstanceArg,
     out: OutOpt = None,
@@ -230,6 +254,7 @@ def assign(
 
 
 @app.command()
+@_user_errors
 def timetable(
     instance: InstanceArg,
     assignments: Annotated[Path, typer.Option(help="Stage A hand-off (CSV, .xlsx or .json).")],
@@ -261,12 +286,15 @@ def _write_outputs(
         findings=result.findings if result else (),
         stats=result.stats if result else None,
     )
+    written = [out / "solution.json", out / "report.xlsx"]
     if solution.placements is not None:
         (out / "timetable.html").write_text(render_html(inst, solution, cfg), encoding="utf-8")
-    _say(f"Wrote {out / 'solution.json'}, {out / 'report.xlsx'}, {out / 'timetable.html'}")
+        written.append(out / "timetable.html")
+    _say("Wrote " + ", ".join(str(p) for p in written))
 
 
 @app.command("validate")
+@_user_errors
 def validate_cmd(
     instance: InstanceArg,
     solution: Annotated[Path, typer.Argument(help="solution.json, or an assignments CSV/xlsx.")],
@@ -286,6 +314,7 @@ def validate_cmd(
 
 
 @app.command()
+@_user_errors
 def report(
     instance: InstanceArg,
     solution: Annotated[Path, typer.Argument(help="solution.json")],
@@ -331,6 +360,7 @@ def _solve_stage(
 
 
 @app.command("alternatives")
+@_user_errors
 def alternatives_cmd(
     instance: InstanceArg,
     stage: StageOpt = "B",
@@ -370,6 +400,7 @@ def alternatives_cmd(
 
 
 @app.command()
+@_user_errors
 def repair(
     instance: InstanceArg,
     previous: Annotated[Path, typer.Option(help="Previous solution.json.")],
@@ -402,6 +433,7 @@ def repair(
 
 
 @app.command()
+@_user_errors
 def generate(
     out: Annotated[Path, typer.Argument(help="Folder to write the CSV instance to.")],
     professors: int = 6,
@@ -427,6 +459,7 @@ def generate(
 
 
 @app.command()
+@_user_errors
 def experiment(
     name: Annotated[str, typer.Argument(help="ablation | scaling | weights | fairness | all")],
     out: PlainOutOpt = Path("experiments/results"),
@@ -455,6 +488,7 @@ def _under_data_private(path: Path) -> bool:
 
 
 @app.command("convert-legacy")
+@_user_errors
 def convert_legacy_cmd(
     source: Annotated[Path, typer.Argument(help="Folder with the four legacy .xlsx files.")],
     out: PlainOutOpt = Path("data/private/legacy"),

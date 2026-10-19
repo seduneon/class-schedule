@@ -10,11 +10,13 @@ EPS = 1e-9
 
 
 def professor_loads(instance: Instance, solution: Solution) -> dict[str, float]:
-    """Units taught per professor (placeholders excluded)."""
+    """Units taught per professor (placeholders excluded). Units come from the offerings
+    (u_{c,k}); a row's own ``units`` is used only for a section that is not offered (A1 error)."""
     loads = dict.fromkeys(instance.professor_ids, 0.0)
     for a in solution.assignments:
         if a.professor_id in loads:
-            loads[a.professor_id] += a.units
+            sec = instance.section_by_key.get(a.section_key)
+            loads[a.professor_id] += a.units if sec is None else sec.units
     return loads
 
 

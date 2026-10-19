@@ -6,7 +6,7 @@ from collections import Counter
 
 from scheduler.config import Config, ConstraintSettings
 from scheduler.derived import stage_a_offering_keys
-from scheduler.domain import Instance, Solution
+from scheduler.domain import Instance, Solution, is_placeholder
 from scheduler.validation.core import Violation, check, severity_for
 
 
@@ -14,8 +14,20 @@ from scheduler.validation.core import Violation, check, severity_for
 def check_a1(
     instance: Instance, solution: Solution, settings: ConstraintSettings, config: Config
 ) -> list[Violation]:
-    """sum_p n_{p,c,k} = N_{c,k}: count distinct valid labels per (c, k); flag unknown/duplicate labels."""
+    """sum_p n_{p,c,k} = N_{c,k}: count distinct valid labels per (c, k); flag unknown/duplicate
+    labels and sections given to an unknown professor (TBA placeholders allowed)."""
     out: list[Violation] = []
+    for a in solution.assignments:
+        if not is_placeholder(a.professor_id) and a.professor_id not in instance.professor_by_id:
+            sid = f"{a.course_id}-{a.section_label}"
+            out.append(
+                Violation(
+                    "A1",
+                    "error",
+                    f"{sid} is assigned to unknown professor {a.professor_id!r}",
+                    (sid, a.professor_id),
+                )
+            )
     counts = Counter(a.section_key for a in solution.assignments)
     for key, n in sorted(counts.items(), key=lambda kv: (kv[0][0], kv[0][1].value, kv[0][2])):
         sid = f"{key[0]}-{key[2]}"
