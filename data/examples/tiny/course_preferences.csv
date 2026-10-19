@@ -1,0 +1,8 @@
+professor_id,course_id,rank
+A,MATH161,1
+A,MATH351,2
+B,MATH351,1
+B,MATH361,2
+B,MATH161,3
+C,MATH361,1
+C,MATH161,2

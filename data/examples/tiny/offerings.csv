@@ -1,0 +1,4 @@
+course_id,title,level,section_type,num_sections,capacity,units,room_type
+MATH161,Calculus I,161,L,2,40,1,lecture
+MATH351,Numerical Methods,351,L,1,30,1,lecture
+MATH361,Real Analysis I,361,L,1,30,1,lecture

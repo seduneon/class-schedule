@@ -1,0 +1,36 @@
+course_id,title,level,section_type,num_sections,capacity,units,room_type
+MATH109,Mathematical Discovery,100,L,2,60,1.0,classroom
+MATH161,Calculus I,100,L,2,200,1.0,classroom
+MATH161,Calculus I,100,R,8,57,0.5,classroom
+MATH162,Calculus II,100,L,4,200,1.0,classroom
+MATH162,Calculus II,100,R,15,57,0.5,classroom
+MATH251,Discrete Mathematics,200,L,3,60,1.0,classroom
+MATH263,Calculus III,200,L,1,60,1.0,classroom
+MATH263,Calculus III,200,R,1,60,0.5,classroom
+MATH273,Linear Algebra with Applications,200,L,3,60,1.0,classroom
+MATH273,Linear Algebra with Applications,200,R,2,90,0.5,classroom
+MATH274,Introduction to Differential Equations,200,L,1,60,1.0,classroom
+MATH275,Mathematics for AI,200,L,1,50,1.0,classroom
+MATH302,Abstract Algebra I,300,L,1,60,1.0,classroom
+MATH310,Applied Statistical Methods,300,L,1,60,1.0,classroom
+MATH321,Probability,300,L,5,60,1.0,classroom
+MATH322,Mathematical Statistics,300,L,1,60,1.0,classroom
+MATH350,Research Methods,300,L,3,50,1.0,classroom
+MATH351,Numerical Methods with Applications,300,L,2,60,1.0,classroom
+MATH361,Real Analysis I,300,L,2,60,1.0,classroom
+MATH407,Graph Theory,400,L,1,50,1.0,classroom
+MATH411,Linear Programming,400,L,1,50,1.0,classroom
+MATH412,NonLinear Optimization,400,L,1,50,1.0,classroom
+MATH423,Actuarial Mathematics II,400,L,1,60,1.0,classroom
+MATH440,Regression Analysis,400,L,1,50,1.0,classroom
+MATH455,Stochastic Calculus,400,L,1,50,1.0,classroom
+MATH456,Lie Groups and Representation Theory,400,L,1,50,1.0,classroom
+MATH461,Real Analysis II,400,L,1,50,1.0,classroom
+MATH462,Advanced Linear Algebra,400,L,1,50,1.0,classroom
+MATH465,Introduction to Differential Geometry,400,L,1,50,1.0,classroom
+MATH466,Nonlinear Contiuum Mechanics,400,L,1,50,1.0,classroom
+MATH482,Fourier Analysis,400,L,1,50,1.0,classroom
+MATH541,Data Analysis and Statistical Learning,500,L,1,30,1.0,classroom
+MATH571,Nolinear Differential Equations,500,L,1,30,1.0,classroom
+MATH676,Advanced PDE,600,L,1,30,1.0,classroom
+MATH761,Mathematical Finance,700,L,1,30,1.0,classroom

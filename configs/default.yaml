@@ -1,0 +1,54 @@
+# Default configuration (SPEC §9). Unknown keys and unknown constraint IDs are errors.
+solver:
+  backend: cbc            # cbc | highs
+  time_limit_s: 300
+  threads: 4
+  seed: 42
+  mip_gap: 0.0
+preferences:
+  strategy: linear        # linear | exponential | top_k
+  beta: 0.7
+  top_k: 5
+  unranked_policy: forbid # forbid | allow_low
+  unranked_weight: 0.0
+time:
+  buffer_minutes: 0
+  adjacency_gap_minutes: 15
+  days: [Mon, Tue, Wed, Thu, Fri]
+recitations:
+  staffing: faculty       # faculty | same_as_lecture | external
+conflict_groups:
+  auto_levels: true
+objective:
+  lambda_course_fairness: 0.5
+  lambda_time_fairness: 0.5
+  tolerances: {level1: 0.0, level2: 0.0}   # absolute slack allowed when fixing a level
+alternatives:
+  count: 0
+  min_difference: 3
+  optimality_gap: 0.02
+# One entry per constraint ID (SPEC §4). `weight` scales the soft slack, `level` is the
+# lexicographic level it is minimized at (soft mode only).
+constraints:
+  A1: {mode: hard}
+  A2: {mode: soft, weight: 10, allow_overload: false}
+  A3: {mode: hard}
+  A4: {mode: hard}
+  A5: {mode: soft, weight: 1, bonus_per_extra: 0.1}
+  A6: {mode: soft, weight: 1}
+  A7: {mode: off}
+  A8: {mode: hard}
+  A9: {mode: soft}
+  B1: {mode: hard}
+  B2: {mode: hard}
+  B3: {mode: hard}
+  B4: {mode: hard, weight: 10}
+  B5: {mode: hard, weight: 5}
+  B6: {mode: soft, weight: 1}
+  B7: {mode: soft, weight: 1, recitation_after_first_lecture: false}
+  B8: {mode: soft, weight: 1}
+  B9: {mode: soft, weight: 1, reward: 0.05}
+  B10: {mode: off, weight: 1, max_consecutive: 3}
+  B11: {mode: off, weight: 0.01, scope: room}   # weight x rooms used, subtracted at level 3
+  B12: {mode: soft}
+  B13: {mode: soft, weight: 5}              # off-family sections + extra families, level 2

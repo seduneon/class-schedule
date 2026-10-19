@@ -1,0 +1,4 @@
+professor_id,name,load_min,load_max,priority,max_preps,max_days,multi_section_pref,schedule_style
+A,Professor A,1,2,1,,,0,none
+B,Professor B,1,2,1,,,0,none
+C,Professor C,1,1,1,,,0,none

@@ -1,0 +1,6 @@
+kind,professor_id,detail
+name_match,P08,survey response matched by last name (no e-mail match)
+duplicate_response,P17,answered twice; latest response used
+no_response,P11,no survey response; no preferences
+no_response,P21,no survey response; no preferences
+no_response,P02,no survey response; no preferences
