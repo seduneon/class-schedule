@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pandas as pd
+from pytest import MonkeyPatch
 from typer.testing import CliRunner
 
+from scheduler import cli
 from scheduler.cli import app
+from scheduler.pipeline import StageResult, run_stage_a
 from tests.factory import ROOT, TINY
 
 runner = CliRunner()
@@ -137,3 +141,101 @@ def test_alternatives_and_repair_commands(tmp_path: Path) -> None:
     )
     assert r.exit_code == 0, r.output
     assert "level 10 (repair, min): 0" in r.output
+
+
+def _only_run(runs: Path) -> Path:
+    folders = sorted(p for p in runs.iterdir() if not p.is_symlink())
+    assert len(folders) == 1, folders
+    return folders[0]
+
+
+def test_run_writes_a_timestamped_run_folder(tmp_path: Path) -> None:
+    runs = tmp_path / "runs"
+    r = runner.invoke(app, ["run", str(TINY), "-c", CONFIG, "--runs-dir", str(runs)])
+    assert r.exit_code == 0, r.output
+    folder = _only_run(runs)
+    assert folder.name.endswith("_tiny")
+    assert (runs / "latest").resolve() == folder.resolve()
+    for name in (
+        "run.json",
+        "config.yaml",
+        "log.txt",
+        "check.txt",
+        "assignments.csv",
+        "stage_a.json",
+        "solution.json",
+        "report.xlsx",
+        "timetable.html",
+    ):
+        assert (folder / name).exists(), name
+    meta = json.loads((folder / "run.json").read_text())
+    assert meta["status"] == "ok" and meta["command"] == "run"
+    assert set(meta["stages"]) == {"A", "B"}
+    assert meta["config"] == CONFIG and meta["from_run"] is None
+    log = (folder / "log.txt").read_text()
+    assert "Stage A: optimal" in log and "Stage B: optimal" in log and "\x1b[" not in log
+    r = runner.invoke(app, ["validate", str(TINY), str(runs / "latest" / "solution.json")])
+    assert r.exit_code == 0, r.output
+
+
+def test_run_with_edited_assignments_skips_stage_a(tmp_path: Path) -> None:
+    runs = tmp_path / "runs"
+    runner.invoke(app, ["run", str(TINY), "--runs-dir", str(runs)])
+    first = _only_run(runs)
+    r = runner.invoke(
+        app,
+        [
+            "run",
+            str(TINY),
+            "--assignments",
+            str(runs / "latest" / "assignments.csv"),
+            "--runs-dir",
+            str(runs),
+        ],
+    )
+    assert r.exit_code == 0, r.output
+    second = (runs / "latest").resolve()
+    assert second != first.resolve()
+    meta = json.loads((second / "run.json").read_text())
+    assert meta["from_run"] == first.name and set(meta["stages"]) == {"B"}
+    assert not (second / "stage_a.json").exists() and (second / "solution.json").exists()
+
+
+def test_l1_errors_are_reported_but_do_not_stop_the_run(tmp_path: Path) -> None:
+    inst = tmp_path / "small_rooms"
+    inst.mkdir()
+    for f in TINY.iterdir():
+        (inst / f.name).write_bytes(f.read_bytes())
+    rooms = pd.read_csv(inst / "rooms.csv")
+    rooms["capacity"] = 1  # no section fits anywhere: L1 errors, nothing placed
+    rooms.to_csv(inst / "rooms.csv", index=False)
+    runs = tmp_path / "runs"
+    r = runner.invoke(app, ["run", str(inst), "--runs-dir", str(runs)])
+    assert r.exit_code == 0, r.output
+    assert "Check: " in r.output and "see check.txt" in r.output
+    folder = _only_run(runs)
+    assert "no_room" in (folder / "check.txt").read_text()
+    assert (folder / "solution.json").exists()
+
+
+def test_failed_stage_marks_the_run_failed(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    def no_solution(*args: object, **kwargs: object) -> StageResult:
+        return replace(run_stage_a(*args, **kwargs), solution=None)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(cli, "run_stage_a", no_solution)
+    runs = tmp_path / "runs"
+    r = runner.invoke(app, ["run", str(TINY), "--runs-dir", str(runs)])
+    assert r.exit_code == 1, r.output
+    folder = _only_run(runs)
+    meta = json.loads((folder / "run.json").read_text())
+    assert meta["status"] == "failed" and set(meta["stages"]) == {"A"}
+    assert not (folder / "assignments.csv").exists()
+
+
+def test_commands_default_to_run_folders(tmp_path: Path) -> None:
+    runs = tmp_path / "runs"
+    r = runner.invoke(app, ["assign", str(TINY), "--runs-dir", str(runs)])
+    assert r.exit_code == 0, r.output
+    folder = _only_run(runs)
+    assert (folder / "assignments.csv").exists()
+    assert json.loads((folder / "run.json").read_text())["command"] == "assign"

@@ -1,17 +1,19 @@
-"""Command-line interface (SPEC §10): check, assign, timetable, validate, report, ..."""
+"""Command-line interface (SPEC §10): check, run, assign, timetable, validate, report, ..."""
 
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+import sys
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, TextIO
 
 import typer
 
 from scheduler.config import Config, load_config
 from scheduler.diagnostics import Finding, has_errors, presolve_checks
-from scheduler.domain import Instance, Solution
+from scheduler.domain import Assignment, Instance, Solution
 from scheduler.io import (
     InputError,
     read_assignments,
@@ -20,6 +22,7 @@ from scheduler.io import (
     write_assignments,
     write_solution,
 )
+from scheduler.io.runs import DEFAULT_RUNS_DIR, RunRecord, new_run_dir, write_config
 from scheduler.pipeline import StageResult, alternatives, run_stage_a, run_stage_b
 from scheduler.reporting import render_html, write_excel_report
 from scheduler.validation import Violation, check_pins, validate
@@ -36,50 +39,103 @@ InstanceArg = Annotated[
 ConfigOpt = Annotated[
     Path | None, typer.Option("--config", "-c", help="YAML config (default: built-in defaults).")
 ]
-OutOpt = Annotated[Path, typer.Option("--out", "-o", help="Output folder.")]
+OutOpt = Annotated[
+    Path | None,
+    typer.Option("--out", "-o", help="Output folder (default: a new folder under --runs-dir)."),
+]
+PlainOutOpt = Annotated[Path, typer.Option("--out", "-o", help="Output folder.")]
+RunsOpt = Annotated[
+    Path, typer.Option("--runs-dir", help="Parent of the timestamped run folders (L9).")
+]
+
+_LOGS: list[TextIO] = []  # log.txt of the active run folder, if any
+
+
+def _say(message: str = "", fg: str | None = None, err: bool = False) -> None:
+    """Print to the console and append the plain text to the active run's log.txt."""
+    typer.secho(message, fg=fg, err=err)
+    for log in _LOGS:
+        log.write(message + "\n")
+
+
+@contextmanager
+def _run_folder(
+    command: str,
+    instance: Path,
+    config: Path | None,
+    cfg: Config,
+    out: Path | None,
+    runs_dir: Path,
+    assignments: Path | None = None,
+    previous: Path | None = None,
+) -> Iterator[tuple[Path, RunRecord]]:
+    """L9: open ``out`` (or a new run folder), log the console there, and always write
+    ``config.yaml`` and ``run.json`` (status ``ok`` only if the command finishes cleanly)."""
+    record = RunRecord(command, sys.argv[1:], instance, config, assignments, previous)
+    folder = out if out is not None else new_run_dir(runs_dir, instance)  # moves runs/latest
+    folder.mkdir(parents=True, exist_ok=True)
+    write_config(cfg, folder / "config.yaml")
+    ok = False
+    with (folder / "log.txt").open("w", encoding="utf-8") as log:
+        _LOGS.append(log)
+        try:
+            _say(f"Run folder: {folder}")
+            yield folder, record
+            ok = True
+        except typer.Exit as exc:
+            ok = exc.exit_code == 0
+            raise
+        finally:
+            _LOGS.remove(log)
+            record.status = "ok" if ok else "failed"
+            record.write(folder)
+
+
+def _record(record: RunRecord, result: StageResult) -> None:
+    record.add_stage(result.stage, result.status.value, result.stats)
 
 
 def _load(instance_path: Path, config_path: Path | None) -> tuple[Instance, Config]:
     try:
         return read_instance(instance_path), load_config(config_path)
     except InputError as exc:
-        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        _say(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(2) from exc
 
 
 def _print_findings(findings: Sequence[Finding]) -> None:
     if not findings:
-        typer.echo("No data problems found.")
+        _say("No data problems found.")
         return
     colors = {"error": typer.colors.RED, "warning": typer.colors.YELLOW, "info": None}
     for f in findings:
-        typer.secho(str(f), fg=colors[f.severity])
+        _say(str(f), fg=colors[f.severity])
 
 
 def _print_violations(violations: Sequence[Violation]) -> None:
     if not violations:
-        typer.secho("Validator: all checks passed.", fg=typer.colors.GREEN)
+        _say("Validator: all checks passed.", fg=typer.colors.GREEN)
         return
     for v in violations:
-        typer.secho(str(v), fg=typer.colors.RED if v.severity == "error" else typer.colors.YELLOW)
+        _say(str(v), fg=typer.colors.RED if v.severity == "error" else typer.colors.YELLOW)
 
 
 def _print_result(result: StageResult) -> None:
-    typer.echo(f"Stage {result.stage}: {result.status.value}")
+    _say(f"Stage {result.stage}: {result.status.value}")
     for lv in result.lex.levels:
-        typer.echo(f"  level {lv.level.key} ({lv.level.name}, {lv.level.sense}): {lv.value:.6g}")
-    typer.echo(
+        _say(f"  level {lv.level.key} ({lv.level.name}, {lv.level.sense}): {lv.value:.6g}")
+    _say(
         f"  {result.stats.get('variables', 0)} variables, {result.stats.get('constraints', 0)} "
         f"constraints, {result.stats.get('wall_time_s', 0)} s"
     )
     errors = [f for f in result.findings if f.severity != "info"]
     if errors:
-        typer.echo("Diagnostics:")
+        _say("Diagnostics:")
         _print_findings(errors)
     if result.slacks:
-        typer.echo("Non-zero slacks:")
+        _say("Non-zero slacks:")
         for s in result.slacks:
-            typer.echo(f"  {s}")
+            _say(f"  {s}")
     _print_violations(result.violations)
 
 
@@ -101,38 +157,94 @@ def check(
 
 
 @app.command()
-def assign(
+def run(
     instance: InstanceArg,
-    out: OutOpt = Path("out"),
     config: ConfigOpt = None,
-    fmt: Annotated[str, typer.Option("--format", help="csv or xlsx")] = "csv",
+    assignments: Annotated[
+        Path | None,
+        typer.Option(
+            help="Edited Stage A hand-off: skip Stage A and use this (CSV, .xlsx, .json)."
+        ),
+    ] = None,
+    out: OutOpt = None,
+    runs_dir: RunsOpt = DEFAULT_RUNS_DIR,
 ) -> None:
-    """Stage A: assign professors to sections; writes assignments.<fmt> and stage_a.json."""
+    """L9: check → Stage A → Stage B in one step, all results in a new run folder."""
     inst, cfg = _load(instance, config)
+    asg = read_assignments(assignments) if assignments else None
+    with _run_folder("run", instance, config, cfg, out, runs_dir, assignments) as (folder, rec):
+        findings = presolve_checks(inst, cfg, asg)
+        (folder / "check.txt").write_text(
+            "".join(f"{f}\n" for f in findings) or "No data problems found.\n", encoding="utf-8"
+        )
+        _say(_findings_summary(findings))
+        if asg is None:
+            asg = _assign(inst, cfg, folder, rec, "csv")
+        _timetable(inst, cfg, asg, folder, rec)
+
+
+def _findings_summary(findings: Sequence[Finding]) -> str:
+    counts = {sev: sum(f.severity == sev for f in findings) for sev in ("error", "warning")}
+    return f"Check: {counts['error']} error(s), {counts['warning']} warning(s) (see check.txt)."
+
+
+def _assign(
+    inst: Instance, cfg: Config, out: Path, rec: RunRecord, fmt: str
+) -> tuple[Assignment, ...]:
     result = run_stage_a(inst, cfg)
     _print_result(result)
+    _record(rec, result)
     if result.solution is None:
         raise typer.Exit(1)
     path = write_assignments(result.solution.assignments, out / f"assignments.{fmt}")
     write_solution(result.solution, out / "stage_a.json")
-    typer.echo(f"Wrote {path} (edit it, then run `scheduler timetable`).")
+    _say(
+        f"Wrote {path} (edit it, then run `scheduler timetable` or `scheduler run --assignments`)."
+    )
+    return result.solution.assignments
+
+
+def _timetable(
+    inst: Instance, cfg: Config, asg: Sequence[Assignment], out: Path, rec: RunRecord
+) -> None:
+    result = run_stage_b(inst, cfg, asg)
+    _print_result(result)
+    _record(rec, result)
+    if result.solution is None:
+        raise typer.Exit(1)
+    _write_outputs(out, inst, cfg, result.solution, result)
+
+
+@app.command()
+def assign(
+    instance: InstanceArg,
+    out: OutOpt = None,
+    config: ConfigOpt = None,
+    fmt: Annotated[str, typer.Option("--format", help="csv or xlsx")] = "csv",
+    runs_dir: RunsOpt = DEFAULT_RUNS_DIR,
+) -> None:
+    """Stage A: assign professors to sections; writes assignments.<fmt> and stage_a.json."""
+    inst, cfg = _load(instance, config)
+    with _run_folder("assign", instance, config, cfg, out, runs_dir) as (folder, rec):
+        _assign(inst, cfg, folder, rec, fmt)
 
 
 @app.command()
 def timetable(
     instance: InstanceArg,
     assignments: Annotated[Path, typer.Option(help="Stage A hand-off (CSV, .xlsx or .json).")],
-    out: OutOpt = Path("out"),
+    out: OutOpt = None,
     config: ConfigOpt = None,
+    runs_dir: RunsOpt = DEFAULT_RUNS_DIR,
 ) -> None:
     """Stage B: time patterns and rooms; writes solution.json, report.xlsx, timetable.html."""
     inst, cfg = _load(instance, config)
     asg = read_assignments(assignments)
-    result = run_stage_b(inst, cfg, asg)
-    _print_result(result)
-    if result.solution is None:
-        raise typer.Exit(1)
-    _write_outputs(out, inst, cfg, result.solution, result)
+    with _run_folder("timetable", instance, config, cfg, out, runs_dir, assignments) as (
+        folder,
+        rec,
+    ):
+        _timetable(inst, cfg, asg, folder, rec)
 
 
 def _write_outputs(
@@ -151,7 +263,7 @@ def _write_outputs(
     )
     if solution.placements is not None:
         (out / "timetable.html").write_text(render_html(inst, solution, cfg), encoding="utf-8")
-    typer.echo(f"Wrote {out / 'solution.json'}, {out / 'report.xlsx'}, {out / 'timetable.html'}")
+    _say(f"Wrote {out / 'solution.json'}, {out / 'report.xlsx'}, {out / 'timetable.html'}")
 
 
 @app.command("validate")
@@ -177,15 +289,28 @@ def validate_cmd(
 def report(
     instance: InstanceArg,
     solution: Annotated[Path, typer.Argument(help="solution.json")],
-    out: OutOpt = Path("out"),
+    out: OutOpt = None,
     config: ConfigOpt = None,
+    runs_dir: RunsOpt = DEFAULT_RUNS_DIR,
 ) -> None:
     """L6: Excel workbook and HTML grid for an existing solution."""
     inst, cfg = _load(instance, config)
-    _write_outputs(out, inst, cfg, read_solution(solution), None)
+    sol = read_solution(solution)
+    with _run_folder("report", instance, config, cfg, out, runs_dir, previous=solution) as (
+        folder,
+        _,
+    ):
+        _write_outputs(folder, inst, cfg, sol, None)
 
 
 StageOpt = Annotated[str, typer.Option("--stage", help="A (assignment) or B (timetable).")]
+
+
+def _check_stage(stage: str, assignments: Path | None, previous: Path | None = None) -> None:
+    if stage.upper() not in ("A", "B"):
+        raise typer.BadParameter("stage must be A or B", param_hint="--stage")
+    if stage.upper() == "B" and assignments is None and previous is None:
+        raise typer.BadParameter("Stage B needs --assignments", param_hint="--assignments")
 
 
 def _solve_stage(
@@ -197,14 +322,11 @@ def _solve_stage(
 ) -> StageResult:
     if stage.upper() == "A":
         return run_stage_a(inst, cfg, previous=previous)
-    if stage.upper() != "B":
-        raise typer.BadParameter("stage must be A or B")
     if assignments is not None:
         asg = read_assignments(assignments)
-    elif previous is not None:
-        asg = previous.assignments
     else:
-        raise typer.BadParameter("Stage B needs --assignments")
+        assert previous is not None  # _check_stage
+        asg = previous.assignments
     return run_stage_b(inst, cfg, asg, previous=previous)
 
 
@@ -216,30 +338,35 @@ def alternatives_cmd(
     count: Annotated[
         int | None, typer.Option(help="Number of alternatives (default: config).")
     ] = None,
-    out: OutOpt = Path("out"),
+    out: OutOpt = None,
     config: ConfigOpt = None,
+    runs_dir: RunsOpt = DEFAULT_RUNS_DIR,
 ) -> None:
     """L3: solve, then list up to N near-optimal alternatives with a diff against the best."""
+    _check_stage(stage, assignments)
     inst, cfg = _load(instance, config)
-    result = _solve_stage(stage, inst, cfg, assignments)
-    _print_result(result)
-    if result.solution is None:
-        raise typer.Exit(1)
-    alts = alternatives(result, cfg, count if count is not None else max(cfg.alternatives.count, 3))
-    out.mkdir(parents=True, exist_ok=True)
-    write_solution(result.solution, out / "best.json")
-    for alt in alts:
-        write_solution(alt.solution, out / f"alternative_{alt.rank}.json")
-        typer.echo(
-            f"#{alt.rank}: level 3 = {alt.objective:.6g} ({alt.relative_gap:.2%} below best)"
+    with _run_folder("alternatives", instance, config, cfg, out, runs_dir, assignments) as (
+        folder,
+        rec,
+    ):
+        result = _solve_stage(stage, inst, cfg, assignments)
+        _print_result(result)
+        _record(rec, result)
+        if result.solution is None:
+            raise typer.Exit(1)
+        n = count if count is not None else max(cfg.alternatives.count, 3)
+        alts = alternatives(result, cfg, n)
+        write_solution(result.solution, folder / "best.json")
+        for alt in alts:
+            write_solution(alt.solution, folder / f"alternative_{alt.rank}.json")
+            _say(f"#{alt.rank}: level 3 = {alt.objective:.6g} ({alt.relative_gap:.2%} below best)")
+            for line in alt.diff:
+                _say(f"    {line}")
+        (folder / "alternatives.json").write_text(
+            json.dumps([a.as_dict() for a in alts], indent=2) + "\n", encoding="utf-8"
         )
-        for line in alt.diff:
-            typer.echo(f"    {line}")
-    (out / "alternatives.json").write_text(
-        json.dumps([a.as_dict() for a in alts], indent=2) + "\n", encoding="utf-8"
-    )
-    if not alts:
-        typer.echo("No alternative within the optimality gap.")
+        if not alts:
+            _say("No alternative within the optimality gap.")
 
 
 @app.command()
@@ -250,21 +377,28 @@ def repair(
     assignments: Annotated[
         Path | None, typer.Option(help="New Stage A hand-off (Stage B; default: previous).")
     ] = None,
-    out: OutOpt = Path("out"),
+    out: OutOpt = None,
     config: ConfigOpt = None,
+    runs_dir: RunsOpt = DEFAULT_RUNS_DIR,
 ) -> None:
     """L5: re-solve a changed instance while changing as few decisions as possible."""
+    _check_stage(stage, assignments, previous)
     inst, cfg = _load(instance, config)
     prev = read_solution(previous)
-    result = _solve_stage(stage, inst, cfg, assignments, previous=prev)
-    _print_result(result)
-    if result.solution is None:
-        raise typer.Exit(1)
-    if stage.upper() == "A":
-        write_assignments(result.solution.assignments, out / "assignments.csv")
-        write_solution(result.solution, out / "stage_a.json")
-    else:
-        _write_outputs(out, inst, cfg, result.solution, result)
+    with _run_folder("repair", instance, config, cfg, out, runs_dir, assignments, previous) as (
+        folder,
+        rec,
+    ):
+        result = _solve_stage(stage, inst, cfg, assignments, previous=prev)
+        _print_result(result)
+        _record(rec, result)
+        if result.solution is None:
+            raise typer.Exit(1)
+        if stage.upper() == "A":
+            write_assignments(result.solution.assignments, folder / "assignments.csv")
+            write_solution(result.solution, folder / "stage_a.json")
+        else:
+            _write_outputs(folder, inst, cfg, result.solution, result)
 
 
 @app.command()
@@ -289,13 +423,13 @@ def generate(
     )
     inst = generate_instance(spec)
     write_instance(inst, out)
-    typer.echo(f"Wrote {len(inst.professors)} professors, {len(inst.sections)} sections to {out}")
+    _say(f"Wrote {len(inst.professors)} professors, {len(inst.sections)} sections to {out}")
 
 
 @app.command()
 def experiment(
     name: Annotated[str, typer.Argument(help="ablation | scaling | weights | fairness | all")],
-    out: OutOpt = Path("experiments/results"),
+    out: PlainOutOpt = Path("experiments/results"),
     seeds: Annotated[int, typer.Option(help="Number of seeds (0..n-1).")] = 3,
     config: ConfigOpt = None,
 ) -> None:
@@ -312,7 +446,7 @@ def experiment(
         rows = EXPERIMENTS[n](cfg, list(range(seeds)))
         out.mkdir(parents=True, exist_ok=True)
         pd.DataFrame(rows).to_csv(out / f"{n}.csv", index=False)
-        typer.echo(f"{n}: {len(rows)} rows -> {out / (n + '.csv')}")
+        _say(f"{n}: {len(rows)} rows -> {out / (n + '.csv')}")
 
 
 def _under_data_private(path: Path) -> bool:
@@ -323,7 +457,7 @@ def _under_data_private(path: Path) -> bool:
 @app.command("convert-legacy")
 def convert_legacy_cmd(
     source: Annotated[Path, typer.Argument(help="Folder with the four legacy .xlsx files.")],
-    out: OutOpt = Path("data/private/legacy"),
+    out: PlainOutOpt = Path("data/private/legacy"),
     add_offering: Annotated[
         list[str] | None,
         typer.Option(help="Extra sections COURSE:TYPE:N:CAP, e.g. MATH161:R:8:57 (repeatable)."),
@@ -345,7 +479,7 @@ def convert_legacy_cmd(
     except ValueError as exc:
         raise typer.BadParameter(str(exc), param_hint="--add-offering") from exc
     result = write_legacy(convert_legacy(source, extra, anonymize), out)
-    typer.echo(f"Wrote the instance to {result}; review {result / 'review.csv'} before solving.")
+    _say(f"Wrote the instance to {result}; review {result / 'review.csv'} before solving.")
 
 
 def main() -> None:  # pragma: no cover

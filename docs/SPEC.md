@@ -312,6 +312,15 @@ A single model with $y_{p,s,t,r}$ (or $n$ plus $y$ linked). Used only for experi
 **L8 — Instance generator (should)**
 `scheduler.generate` creates synthetic instances with controllable size, tightness (load vs sections, rooms vs sections) and preference correlation. Used for property tests and scaling experiments. It is seeded and deterministic.
 
+**L9 — Run folders (must)**
+Every solve keeps its results in its own folder, so runs are never overwritten and can be reproduced and compared.
+- Commands that write results (`run`, `assign`, `timetable`, `report`, `alternatives`, `repair`) write to a new folder `runs/<YYYY-MM-DD_HH-MM-SS>_<instance>/` when `--out` is not given. `<instance>` is the instance folder name (or the workbook name without extension). If the name is taken, `-2`, `-3`, … is appended. `--runs-dir` changes the parent folder. An explicit `--out` writes exactly there instead (with the same metadata files).
+- `runs/latest` is a symlink to the newest run folder (skipped where symlinks are unsupported).
+- `scheduler run <instance>` is the one-step pipeline: L1 check → Stage A → Stage B. With `--assignments FILE` it skips Stage A and uses the (possibly hand-edited) hand-off. L1 findings go to `check.txt` and do not stop the run (as in `assign` / `timetable`, the model reports what cannot be covered); a stage without a solution stops it with exit code 1, keeping what was written so far.
+- Each run folder holds, besides the stage outputs (§5.4, L6): `run.json`, `config.yaml` (the resolved config actually used), `log.txt` (console output without colors); `run` also writes `check.txt` (L1 findings).
+- `run.json` fields: `command`, `argv`, `started_at`, `finished_at` (local ISO 8601), `status` (`ok` / `failed`), `instance` (path) and `instance_sha256` (hash over the input files in sorted name order), `config` (path or `null` for built-in defaults), `assignments` (input hand-off path or `null`), `from_run` (name of the run folder the hand-off came from, if any), `scheduler_version`, `git_commit` and `git_dirty` (`null` outside a git checkout), and `stages`: per solved stage its status, objective levels and solver stats.
+- `runs/` is git-ignored: runs on real data contain names.
+
 ---
 
 ## 8. Input formats
@@ -426,9 +435,10 @@ class-scheduler/
 │   ├── examples/tiny/          # hand-checkable instance (3 profs, 4 sections)
 │   ├── examples/medium/        # anonymized realistic instance
 │   └── private/                # real data — git-ignored
+├── runs/                       # L9 run folders — git-ignored
 ├── src/scheduler/
 │   ├── domain/                 # frozen dataclasses: Professor, Offering, Section, Room, TimePattern, Meeting, Instance, Assignment, Solution
-│   ├── io/                     # readers (csv/xlsx → domain), schemas (pydantic), writers, legacy converter
+│   ├── io/                     # readers (csv/xlsx → domain), schemas (pydantic), writers, legacy converter, run folders (L9)
 │   ├── time/                   # parsing, overlap, cliques, adjacency, independent-set α_p
 │   ├── preferences/            # rank → weight strategies
 │   ├── config.py               # pydantic Config
@@ -447,7 +457,7 @@ class-scheduler/
 │   ├── reporting/              # L6 excel, html, json
 │   ├── generate/               # L8 synthetic instances
 │   ├── pipeline.py             # run_stage_a / run_stage_b / run_integrated — library entry points
-│   └── cli.py                  # typer: check, assign, timetable, validate, alternatives, repair, report, generate, experiment
+│   └── cli.py                  # typer: check, run, assign, timetable, validate, alternatives, repair, report, generate, experiment
 ├── experiments/                # scripted, reproducible experiment runs; write CSV + plots
 └── tests/
     ├── unit/                   # domain, io, time, preferences, each constraint

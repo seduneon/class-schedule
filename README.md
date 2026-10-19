@@ -9,11 +9,18 @@ The full specification lives in [`docs/SPEC.md`](docs/SPEC.md).
 
 ```bash
 uv sync
-uv run scheduler check data/examples/tiny
-uv run scheduler assign data/examples/tiny --out out/tiny
-uv run scheduler timetable data/examples/tiny --assignments out/tiny/assignments.csv --out out/tiny
-uv run scheduler validate data/examples/tiny out/tiny/solution.json
+uv run scheduler run data/examples/tiny          # check → Stage A → Stage B
+# results: runs/<YYYY-MM-DD_HH-MM-SS>_tiny/ (runs/latest points to the newest)
+# edit runs/latest/assignments.csv, then re-run Stage B into a new folder:
+uv run scheduler run data/examples/tiny --assignments runs/latest/assignments.csv
+uv run scheduler validate data/examples/tiny runs/latest/solution.json
 ```
+
+Each run folder holds `assignments.csv`, `stage_a.json`, `solution.json`, `report.xlsx`,
+`timetable.html`, plus `run.json` (inputs, config, git commit, objectives, timings),
+`config.yaml`, `check.txt` and `log.txt` (SPEC L9). Old runs are never overwritten.
+`runs/` is git-ignored. The step-by-step commands (`check`, `assign`, `timetable`, `report`)
+also write to a new run folder unless `--out` is given.
 
 More commands: `alternatives` (L3), `repair` (L5), `generate` (L8), `experiment` (M10).
 Experiments: `uv run python experiments/run_all.py [--quick]` → `experiments/results/` (notes in `docs/report_notes.md`).

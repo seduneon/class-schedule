@@ -79,3 +79,9 @@ Legacy files arrived (`refall2026mathcourselist/`, git-ignored: names, e-mails, 
 - `data/examples/medium`: the anonymized Fall 2026 instance (26 professors, 74 sections, 5 rooms, 15 patterns); fast read/diagnostics tests, slow full-pipeline test.
 - Fix: blank cells in optional input columns now fall back to the column default (they used to fail validation, e.g. `schedule_style`).
 - Duplicate-rank warnings are grouped into one finding per professor.
+
+## Run folders (L9, 2026-10-19)
+- SPEC L9 (new): every solve writes to its own `runs/<YYYY-MM-DD_HH-MM-SS>_<instance>/` folder (suffix `-2`, `-3`, ... on collisions) with `runs/latest` pointing at the newest; `--runs-dir` changes the parent, `--out` still writes to an exact folder.
+- `scheduler run <instance>`: check → Stage A → Stage B in one step; `--assignments` skips Stage A and records which run the hand-off came from.
+- Each folder gets `run.json` (command, times, status, instance hash, config, git commit/dirty, version, per-stage stats), `config.yaml` (resolved config), `log.txt` (console output) and, for `run`, `check.txt`.
+- `assign`, `timetable`, `report`, `alternatives`, `repair` default to a new run folder instead of `out/`. `runs/` is git-ignored.
