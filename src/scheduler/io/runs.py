@@ -144,13 +144,29 @@ class RunRecord:
     status: str = "failed"
     stages: dict[str, dict[str, Any]] = field(default_factory=dict)
     from_run: str | None = field(init=False)
+    hard_violations: int | None = field(default=None, init=False)
 
     def __post_init__(self) -> None:
         # Resolve now: the hand-off may be given via runs/latest, which moves to this run.
         self.from_run = from_run(self.assignments or self.previous)
 
-    def add_stage(self, stage: str, status: str, stats: dict[str, Any]) -> None:
-        self.stages[stage] = {"status": status, **stats}
+    def add_stage(
+        self,
+        stage: str,
+        status: str,
+        stats: dict[str, Any],
+        errors: int = 0,
+        warnings: int = 0,
+        solved: bool = True,
+    ) -> None:
+        """Record a stage; a solved stage's error count becomes ``hard_violations``."""
+        self.stages[stage] = {
+            "status": status,
+            **stats,
+            "violations": {"error": errors, "warning": warnings},
+        }
+        if solved:
+            self.hard_violations = errors
 
     def as_dict(self) -> dict[str, Any]:
         commit, dirty = git_state()
@@ -170,6 +186,7 @@ class RunRecord:
             "git_commit": commit,
             "git_dirty": dirty,
             "stages": self.stages,
+            "hard_violations": self.hard_violations,
         }
 
     def write(self, folder: Path) -> Path:

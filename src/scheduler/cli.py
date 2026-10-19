@@ -96,7 +96,10 @@ def _run_folder(
 
 
 def _record(record: RunRecord, result: StageResult) -> None:
-    record.add_stage(result.stage, result.status.value, result.stats)
+    errors = sum(v.severity == "error" for v in result.violations)
+    warnings = len(result.violations) - errors
+    solved = result.solution is not None
+    record.add_stage(result.stage, result.status.value, result.stats, errors, warnings, solved)
 
 
 USER_ERRORS = (InputError, OSError, yaml.YAMLError, ValidationError)
@@ -204,6 +207,13 @@ def run(
         if asg is None:
             asg = _assign(inst, cfg, folder, rec, "csv")
         _timetable(inst, cfg, asg, folder, rec)
+        n = rec.hard_violations or 0
+        _say(
+            f"Result: {n} hard violation(s); see the violations sheet in report.xlsx."
+            if n
+            else "Result: no hard violations.",
+            fg=typer.colors.YELLOW if n else typer.colors.GREEN,
+        )
 
 
 def _findings_summary(findings: Sequence[Finding]) -> str:

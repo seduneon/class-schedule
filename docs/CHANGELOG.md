@@ -92,3 +92,8 @@ Legacy files arrived (`refall2026mathcourselist/`, git-ignored: names, e-mails, 
 - Malformed `solution.json` entries (bad `source`, `section_type`, missing keys, invalid JSON) crashed with a traceback; they are now row-level `InputError`s.
 - CLI: missing files, bad YAML and invalid config give a one-line `Error: ...` and exit code 2 instead of a traceback.
 - CLI no longer claims to have written `timetable.html` for a solution without placements.
+
+## No-recitation data + hard-violation count (2026-10-19)
+- `data/examples/medium_no_recitations` (and the git-ignored `data/private/fall2026_no_recitations`): copies without the 26 recitation sections, to test whether the room shortage comes from recitations. Switch by passing the other folder; no new flag.
+- L9: `run.json` records validator counts per stage (`violations: {error, warning}`) and `hard_violations` (errors of the last solved stage; `null` if none). `scheduler run` ends with a one-line `Result:` summary.
+- Fall 2026 comparison: with recitations, 8 hard violations (3 sections without a professor, 5 MATH162 recitations without a room/time); without recitations, 0 hard violations and every lecture is covered, at the cost of more underloaded professors (A2 warnings).

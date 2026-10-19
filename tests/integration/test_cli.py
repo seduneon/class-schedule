@@ -171,6 +171,7 @@ def test_run_writes_a_timestamped_run_folder(tmp_path: Path) -> None:
     meta = json.loads((folder / "run.json").read_text())
     assert meta["status"] == "ok" and meta["command"] == "run"
     assert set(meta["stages"]) == {"A", "B"}
+    assert meta["hard_violations"] == 0 and "Result: no hard violations." in r.output
     assert meta["config"] == CONFIG and meta["from_run"] is None
     log = (folder / "log.txt").read_text()
     assert "Stage A: optimal" in log and "Stage B: optimal" in log and "\x1b[" not in log
@@ -216,6 +217,11 @@ def test_l1_errors_are_reported_but_do_not_stop_the_run(tmp_path: Path) -> None:
     folder = _only_run(runs)
     assert "no_room" in (folder / "check.txt").read_text()
     assert (folder / "solution.json").exists()
+    meta = json.loads((folder / "run.json").read_text())
+    assert meta["status"] == "ok"  # a solution was produced ...
+    n = meta["hard_violations"]  # ... but nothing could be placed
+    assert n > 0 and meta["stages"]["B"]["violations"]["error"] == n
+    assert f"Result: {n} hard violation(s)" in r.output
 
 
 def test_failed_stage_marks_the_run_failed(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
@@ -229,6 +235,7 @@ def test_failed_stage_marks_the_run_failed(tmp_path: Path, monkeypatch: MonkeyPa
     folder = _only_run(runs)
     meta = json.loads((folder / "run.json").read_text())
     assert meta["status"] == "failed" and set(meta["stages"]) == {"A"}
+    assert meta["hard_violations"] is None
     assert not (folder / "assignments.csv").exists()
 
 

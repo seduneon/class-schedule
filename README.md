@@ -19,7 +19,9 @@ uv run scheduler validate data/examples/tiny runs/latest/solution.json
 Each run folder holds `assignments.csv`, `stage_a.json`, `solution.json`, `report.xlsx`,
 `timetable.html`, plus `run.json` (inputs, config, git commit, objectives, timings),
 `config.yaml`, `check.txt` and `log.txt` (SPEC L9). Old runs are never overwritten.
-`runs/` is git-ignored. The step-by-step commands (`check`, `assign`, `timetable`, `report`)
+`run.json` also counts hard violations (`hard_violations`). `runs/` is git-ignored.
+
+To compare inputs, just point at another data folder, e.g. `data/examples/medium_no_recitations` (the medium instance without recitation sections). The step-by-step commands (`check`, `assign`, `timetable`, `report`)
 also write to a new run folder unless `--out` is given.
 
 More commands: `alternatives` (L3), `repair` (L5), `generate` (L8), `experiment` (M10).

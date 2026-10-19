@@ -61,12 +61,19 @@ def test_run_json_fields_and_from_run(tmp_path: Path) -> None:
     (previous / "run.json").write_text("{}")
     rec = RunRecord("run", ["run", "x"], TINY, None, previous / "assignments.csv")
     rec.status = "ok"
-    rec.add_stage("A", "optimal", {"variables": 3})
+    assert rec.hard_violations is None
+    rec.add_stage("A", "optimal", {"variables": 3}, errors=2, warnings=1)
+    rec.add_stage("B", "infeasible", {}, solved=False)  # no solution: count unchanged
     out = tmp_path / "new"
     out.mkdir()
     data = json.loads(rec.write(out).read_text())
     assert data["from_run"] == "old" == from_run(previous / "assignments.csv")
-    assert data["stages"] == {"A": {"status": "optimal", "variables": 3}}
+    assert data["stages"]["A"] == {
+        "status": "optimal",
+        "variables": 3,
+        "violations": {"error": 2, "warning": 1},
+    }
+    assert data["hard_violations"] == 2
     assert data["instance_sha256"] == instance_sha256(TINY)
     assert data["finished_at"] is not None and data["config"] is None
     assert from_run(tmp_path / "elsewhere.csv") is None
