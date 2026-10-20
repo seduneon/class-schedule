@@ -276,6 +276,7 @@ Runs before model building. Returns structured findings (`severity`, `code`, `me
 - Per $(c,k)$: number of eligible professors and their combined free capacity vs $N_{c,k}$.
 - Per section: at least one room large enough and of the right type.
 - Per professor: $\alpha_p$ (A8) vs assigned or minimum load.
+- Per professor: pre-assignments (A4) vs the hard caps they must fit under: max load (A2 upper bound when hard), $\alpha_p$ (A8), one section per course when $\mu_p=-1$ (A5), max preps (A6), each only when that constraint is hard. Error when A4 is hard (Stage A would be infeasible), warning when A4 is soft.
 - Per conflict group: number of courses vs number of disjoint time cliques.
 - Data integrity: unknown IDs, duplicate ranks, pre-assignments of non-offered courses, overlapping blocked slots.
 

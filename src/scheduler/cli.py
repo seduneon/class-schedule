@@ -160,6 +160,9 @@ def _print_result(result: StageResult) -> None:
         _say("Non-zero slacks:")
         for s in result.slacks:
             _say(f"  {s}")
+    if result.solution is None:
+        _say("No solution, so nothing was validated.", fg=typer.colors.RED)
+        return
     _print_violations(result.violations)
 
 

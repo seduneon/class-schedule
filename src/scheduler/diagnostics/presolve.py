@@ -11,7 +11,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Literal
 
-from scheduler.config import Config
+from scheduler.config import A2Settings, Config, Mode
 from scheduler.derived import (
     StageBSection,
     conflict_groups,
@@ -53,6 +53,7 @@ def presolve_checks(
     out += section_rooms(instance, config)
     out += room_slot_capacity(instance, config)
     out += professor_alpha(instance, config, assignments)
+    out += pre_assignment_caps(instance, config)
     out += group_capacity(instance, config)
     out += pin_conflicts(instance, config)
     out += unavailability_off_days(instance, config)
@@ -366,6 +367,72 @@ def professor_alpha(
                     (p.id,),
                 )
             )
+    return out
+
+
+def _hard_upper_load(config: Config) -> bool:
+    """A2's upper bound is a hard constraint (hard mode, or soft without allow_overload)."""
+    if not config.enabled("A2"):
+        return False
+    settings = config.constraints["A2"]
+    return config.mode("A2") is Mode.HARD or not (
+        isinstance(settings, A2Settings) and settings.allow_overload
+    )
+
+
+def pre_assignment_caps(instance: Instance, config: Config) -> list[Finding]:
+    """Per professor: pre-assignments (A4) vs the hard caps they must fit under.
+
+    A hard A4 together with a hard cap it exceeds makes Stage A infeasible (error); a soft
+    A4 means the pre-assignment will not be fully honoured (warning). Caps: A2 max load
+    (units), A8 alpha_p (sections), A5 at most one section per course when mu_p = -1, and
+    A6 max distinct courses.
+    """
+    if not config.enabled("A4"):
+        return []
+    severity: Level = "error" if config.mode("A4") is Mode.HARD else "warning"
+    days, buf = config.time.days, config.time.buffer_minutes
+    keys = set(stage_a_offering_keys(instance, config))
+    known = set(instance.professor_ids)
+    per_prof: dict[str, dict[OfferingKey, int]] = {}
+    for (p, c, k), n in sorted(instance.pre_assigned.items(), key=lambda kv: kv[0][:2]):
+        if p in known and (c, k) in keys:
+            per_prof.setdefault(p, {})[(c, k)] = n
+    out: list[Finding] = []
+
+    def add(pid: str, what: str) -> None:
+        out.append(
+            Finding(
+                severity,
+                "pre_exceeds_caps",
+                f"{pid} is pre-assigned {what}; the pre-assignment (A4) cannot be kept",
+                (pid,),
+            )
+        )
+
+    for pid in sorted(per_prof):
+        prof, pre = instance.professor_by_id[pid], per_prof[pid]
+        units = sum(n * instance.offering_info[key].units for key, n in pre.items())
+        if _hard_upper_load(config) and units > prof.load_max + 1e-9:
+            add(pid, f"{units:g} units but the maximum load is {prof.load_max:g} (A2)")
+        if config.mode("A8") is Mode.HARD:
+            a = alpha(instance, pid, days, buf)
+            if sum(pre.values()) > a:
+                add(
+                    pid,
+                    f"{sum(pre.values())} section(s) but has only {a} non-overlapping "
+                    "available time pattern(s) (A8)",
+                )
+        per_course = Counter[str]()
+        for (c, _k), n in pre.items():
+            per_course[c] += n
+        if config.mode("A5") is Mode.HARD and prof.multi_section_pref == -1:
+            for c, n in sorted(per_course.items()):
+                if n > 1:
+                    add(pid, f"{n} sections of {c} but prefers one section per course (A5)")
+        preps = prof.max_preps
+        if config.mode("A6") is Mode.HARD and preps is not None and len(per_course) > preps:
+            add(pid, f"{len(per_course)} different courses but at most {preps} are allowed (A6)")
     return out
 
 

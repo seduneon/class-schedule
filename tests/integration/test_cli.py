@@ -264,3 +264,23 @@ def test_bad_or_missing_files_give_one_line_errors(tmp_path: Path) -> None:
         assert r.exit_code == 2, (args, r.output)
         assert r.output.startswith("Error: "), (args, r.output)
         assert not isinstance(r.exception, Exception) or isinstance(r.exception, SystemExit)
+
+
+def test_pre_assignment_over_max_load_is_flagged_not_passed(tmp_path: Path) -> None:
+    """Regression: Stage A went infeasible while `check` was clean and the CLI printed
+    'Validator: all checks passed'."""
+    inst = tmp_path / "over_pre"
+    inst.mkdir()
+    for f in TINY.iterdir():
+        (inst / f.name).write_bytes(f.read_bytes())
+    (inst / "pre_assignments.csv").write_text(
+        "professor_id,course_id,section_type,count\nC,MATH161,L,2\n"  # C's load_max is 1
+    )
+    r = runner.invoke(app, ["check", str(inst)])
+    assert r.exit_code == 1, r.output
+    assert "pre_exceeds_caps" in r.output and "C is pre-assigned 2 units" in r.output
+    r = runner.invoke(app, ["run", str(inst), "--runs-dir", str(tmp_path / "runs")])
+    assert r.exit_code == 1, r.output
+    assert "Stage A: infeasible" in r.output
+    assert "all checks passed" not in r.output
+    assert "No solution, so nothing was validated." in r.output

@@ -129,3 +129,47 @@ def test_stage_b_inputs_flag_unknown_professor_and_edited_fields() -> None:
     edited = presolve_checks(inst, Config(), [replace(good, capacity=good.capacity + 5)])
     mismatch = [f for f in edited if f.code == "assignment_mismatch"]
     assert len(mismatch) == 1 and mismatch[0].severity == "warning"
+
+
+def test_pre_assignment_above_max_load_is_an_error() -> None:
+    """Regression: a pre-assignment over load_max made Stage A infeasible with a clean L1."""
+    inst = instance(
+        professors=[prof("P", 0, 1)],
+        offerings=[offering("M101", n=2)],
+        course_preferences=[CoursePreference("P", "M101", 1)],
+        pre_assignments=[PreAssignment("P", "M101", SectionType.L, 2)],
+    )
+    found = [f for f in presolve_checks(inst, Config()) if f.code == "pre_exceeds_caps"]
+    assert [f.severity for f in found] == ["error"]
+    assert "2 units but the maximum load is 1 (A2)" in found[0].message
+    allow_over = Config().model_copy(deep=True)
+    allow_over = allow_over.with_mode("A2", "soft")
+    a2 = allow_over.constraints["A2"].model_copy(update={"allow_overload": True})
+    allow_over = allow_over.model_copy(update={"constraints": {**allow_over.constraints, "A2": a2}})
+    assert "pre_exceeds_caps" not in {f.code for f in presolve_checks(inst, allow_over)}
+    soft_a4 = Config().with_mode("A4", "soft")
+    assert [f.severity for f in presolve_checks(inst, soft_a4) if f.code == "pre_exceeds_caps"] == [
+        "warning"
+    ]
+
+
+def test_pre_assignment_against_hard_a5_a6_a8() -> None:
+    inst = instance(
+        professors=[prof("P", 0, 5, multi_section_pref=-1, max_preps=1)],
+        offerings=[offering("M101", n=2), offering("M102")],
+        patterns=[pattern("MWF0900", "MWF", "09:00", "09:50")],
+        course_preferences=[CoursePreference("P", "M101", 1), CoursePreference("P", "M102", 2)],
+        pre_assignments=[
+            PreAssignment("P", "M101", SectionType.L, 2),
+            PreAssignment("P", "M102", SectionType.L, 1),
+        ],
+    )
+    cfg = Config().with_mode("A5", "hard").with_mode("A6", "hard")
+    msgs = [f.message for f in presolve_checks(inst, cfg) if f.code == "pre_exceeds_caps"]
+    assert any("(A8)" in m for m in msgs)
+    assert any("2 sections of M101" in m and "(A5)" in m for m in msgs)
+    assert any("2 different courses" in m and "(A6)" in m for m in msgs)
+    assert not any(
+        f.code == "pre_exceeds_caps"
+        for f in presolve_checks(inst, Config().with_mode("A8", "soft"))
+    )

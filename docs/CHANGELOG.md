@@ -97,3 +97,7 @@ Legacy files arrived (`refall2026mathcourselist/`, git-ignored: names, e-mails, 
 - `data/examples/medium_no_recitations` (and the git-ignored `data/private/fall2026_no_recitations`): copies without the 26 recitation sections, to test whether the room shortage comes from recitations. Switch by passing the other folder; no new flag.
 - L9: `run.json` records validator counts per stage (`violations: {error, warning}`) and `hard_violations` (errors of the last solved stage; `null` if none). `scheduler run` ends with a one-line `Result:` summary.
 - Fall 2026 comparison: with recitations, 8 hard violations (3 sections without a professor, 5 MATH162 recitations without a room/time); without recitations, 0 hard violations and every lecture is covered, at the cost of more underloaded professors (A2 warnings).
+
+## Fixes (2026-10-20)
+- A pre-assignment above a professor's maximum load made Stage A infeasible while `check` reported "No data problems found". New L1 finding `pre_exceeds_caps` (SPEC §7 L1): pre-assignments vs hard caps A2 (max load), A8 ($\alpha_p$), A5 (one section per course, $\mu_p=-1$), A6 (max preps); error if A4 is hard, warning if soft.
+- CLI printed "Validator: all checks passed" for a stage without a solution; it now says nothing was validated.
