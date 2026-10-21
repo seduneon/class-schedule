@@ -221,6 +221,7 @@ class _Prof:
     first: str
     last: str
     email: str
+    mwf_or_tr: bool = False  # MWForTR = 1; only reported, never applied (SPEC §8.1, D9)
 
 
 def _professor_id(first: str, last: str, email: str) -> str:
@@ -257,10 +258,11 @@ def _professors(
                 "load_min": load,
                 "load_max": load,
                 "priority": (cpts or 100.0) / 100.0,
-                "day_family_mixing": "forbid" if _num(r.get("MWForTR")) == 1 else "allow",
+                # MWForTR is ignored: survey Q3 asks the professor directly (SPEC §8.1, D9)
+                "day_family_mixing": "allow",
             }
         )
-        who.append(_Prof(pid, first, last, email.lower()))
+        who.append(_Prof(pid, first, last, email.lower(), _num(r.get("MWForTR")) == 1))
         for i in range(1, 10):
             course = _str(r.get(f"course{i}"))
             if not course:
@@ -404,16 +406,16 @@ def convert_legacy(
     _h, prof_rows = _header_rows(_sheet(folder / "professors.xlsx"))
     profs, pre, who = _professors(prof_rows, review)
     overrides, cprefs, tprefs = _survey(_sheet(folder / "preferences.xlsx"), who, review)
+    flagged = {w.id for w in who if w.mwf_or_tr}
     for p in profs:
         pid = str(p["professor_id"])
         over = overrides.get(pid)
         if over is None:
             review.append(_rev("no_response", pid, "no survey response; no preferences"))
-            continue
-        forbid = p["day_family_mixing"] == "forbid"
-        p.update(over)
-        if forbid:
-            p["day_family_mixing"] = "forbid"
+        else:
+            p.update(over)
+        if pid in flagged and (over is None or "day_family_mixing" not in over):
+            review.append(_rev("mwfortr", pid, "MWForTR = 1 ignored; survey Q3 unanswered"))
     tables: dict[str, list[Record]] = {
         "professors": profs,
         "offerings": _offerings(course_rows, extra),

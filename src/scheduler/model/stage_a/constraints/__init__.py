@@ -10,6 +10,7 @@ from scheduler.model.stage_a.constraints import (
     a07_recitation_staffing,
     a08_timetable_capacity,
     a09_course_fairness,
+    a10_top_k,
 )
 
 __all__ = [
@@ -22,4 +23,5 @@ __all__ = [
     "a07_recitation_staffing",
     "a08_timetable_capacity",
     "a09_course_fairness",
+    "a10_top_k",
 ]

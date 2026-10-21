@@ -86,7 +86,7 @@ def legacy(tmp_path: Path) -> Path:
             [*head, "MWForTR", "course1", "section1"],
             ["Ann", "Alpha", "ann.alpha@uni.edu", 2, 100, 100, 1, "MATH 351", 1],
             ["Bob", "Beta", "bob.beta@uni.edu", 1.5, 100, 50, 0, None, None],
-            ["Cy", "Gamma", "cy.gamma@uni.edu", 1, 100, 100, 0, None, None],
+            ["Cy", "Gamma", "cy.gamma@uni.edu", 1, 100, 100, 1, None, None],
         ],
     )
     old = datetime(2025, 9, 1)
@@ -136,10 +136,10 @@ def test_convert_round_trips_through_the_readers(legacy: Path, tmp_path: Path) -
 def test_survey_mapping(legacy: Path, tmp_path: Path) -> None:
     inst = read_instance(write_legacy(convert_legacy(legacy, EXTRA), tmp_path / "out"))
     ann = inst.professor_by_id["ann.alpha"]
-    # latest response wins; Q3 = either-not-mixed, but MWForTR = 1 forces forbid
+    # latest response wins; Q3 = either-not-mixed; MWForTR = 1 is ignored (SPEC D9)
     assert (ann.multi_section_pref, ann.schedule_style) == (1, ScheduleStyle.SPREAD)
     assert ann.day_families == frozenset({"MWF", "TR"})
-    assert ann.day_family_mixing is FamilyMixing.FORBID
+    assert ann.day_family_mixing is FamilyMixing.AVOID
     assert (ann.load_min, ann.load_max, ann.priority) == (2, 2, 1.0)
     ranks = inst.course_type_rank
     assert ranks[("ann.alpha", "MATH161", SectionType.L)] == 2
@@ -160,6 +160,7 @@ def test_review_rows(legacy: Path) -> None:
         ("priority", "bob.beta"),
         ("unmatched_response", ""),
         ("no_response", "cy.gamma"),
+        ("mwfortr", "cy.gamma"),  # MWForTR = 1 without a Q3 answer (Ann has one)
     }
 
 

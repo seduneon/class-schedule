@@ -1,8 +1,9 @@
 """Stage A variables (SPEC §5.1).
 
 n_{p,c,k} in Z, 0 <= n <= N_{c,k}: created only for eligible (p, c, k) (A3 filter; a
-pre-assignment or pin overrides). z_{p,c} in {0,1}, linked by
-z_{p,c} <= sum_k n_{p,c,k} <= (sum_k N_{c,k}) z_{p,c}. Stage A pins (L4) fix n.
+pre-assignment or pin overrides) that are not outside the top K when A10 is hard.
+z_{p,c} in {0,1}, linked by z_{p,c} <= sum_k n_{p,c,k} <= (sum_k N_{c,k}) z_{p,c}.
+Stage A pins (L4) fix n.
 """
 
 from __future__ import annotations
@@ -10,7 +11,7 @@ from __future__ import annotations
 from typing import Any, cast
 
 from scheduler.config import Mode
-from scheduler.derived import is_eligible, stage_a_offering_keys
+from scheduler.derived import is_eligible, outside_top_k, stage_a_offering_keys
 from scheduler.domain import SectionType
 from scheduler.model.context import ModelContext
 from scheduler.preferences import course_weights
@@ -21,11 +22,14 @@ NKey = tuple[str, str, SectionType]
 def build_variables(ctx: ModelContext) -> None:
     inst, cfg = ctx.instance, ctx.config
     soft_a3 = cfg.mode("A3") is Mode.SOFT
+    hard_a10 = cfg.mode("A10") is Mode.HARD
     keys = [k for k in stage_a_offering_keys(inst, cfg) if inst.offering_info[k].num_sections > 0]
     pins = inst.stage_a_pin_counts
     for p in inst.professor_ids:
         for c, k in keys:
             if not (soft_a3 or is_eligible(inst, cfg, p, c, k)) and (p, c, k) not in pins:
+                continue
+            if hard_a10 and outside_top_k(inst, cfg, p, c, k) is not None:
                 continue
             n_max = inst.offering_info[(c, k)].num_sections
             var = ctx.add_var("n", (p, c, k), [p, c, k.value], 0, n_max, "Integer")

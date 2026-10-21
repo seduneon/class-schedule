@@ -3,4 +3,6 @@ name_match,P08,survey response matched by last name (no e-mail match)
 duplicate_response,P17,answered twice; latest response used
 no_response,P11,no survey response; no preferences
 no_response,P21,no survey response; no preferences
+mwfortr,P21,MWForTR = 1 ignored; survey Q3 unanswered
 no_response,P02,no survey response; no preferences
+mwfortr,P02,MWForTR = 1 ignored; survey Q3 unanswered

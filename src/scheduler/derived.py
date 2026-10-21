@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from scheduler.config import Config, Mode
+from scheduler.config import A10Settings, Config, Mode
 from scheduler.domain import (
     Assignment,
     FamilyMixing,
@@ -79,6 +79,33 @@ def is_eligible(
     if is_overridden(instance, professor_id, course_id, section_type):
         return True
     return ineligibility_reason(instance, config, professor_id, course_id, section_type) is None
+
+
+def outside_top_k(
+    instance: Instance,
+    config: Config,
+    professor_id: str,
+    course_id: str,
+    section_type: SectionType,
+) -> str | None:
+    """Why (p, c, k) is outside the professor's top K under A10, or None if inside/exempt.
+
+    Outside if the rank rho^C_{p,c,k} (SPEC §3.4) is > K = ``max_rank``, ``cannot``, or
+    unranked. A pre-assignment or pin exempts (p, c, k), as for A3.
+    """
+    if is_overridden(instance, professor_id, course_id, section_type):
+        return None
+    k_max = config.typed_settings("A10", A10Settings).max_rank
+    key = (professor_id, course_id, section_type)
+    ranks = instance.course_type_rank
+    if key not in ranks:
+        return f"unranked, outside the top {k_max}"
+    rank = ranks[key]
+    if rank is None:
+        return f"marked cannot teach, outside the top {k_max}"
+    if rank > k_max:
+        return f"rank {rank} is outside the top {k_max}"
+    return None
 
 
 # ----- conflict groups (B5) -------------------------------------------------------

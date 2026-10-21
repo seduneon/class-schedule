@@ -39,6 +39,7 @@ constraints:
   A7: {mode: off}
   A8: {mode: hard}
   A9: {mode: soft}
+  A10: {mode: soft, weight: 1, max_rank: 5}   # sections outside a professor's top-k ranks, level 2
   B1: {mode: hard}
   B2: {mode: hard}
   B3: {mode: hard}

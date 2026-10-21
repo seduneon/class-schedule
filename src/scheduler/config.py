@@ -62,6 +62,10 @@ class A5Settings(ConstraintSettings):
     bonus_per_extra: float = Field(default=0.1, ge=0)
 
 
+class A10Settings(ConstraintSettings):
+    max_rank: int = Field(default=5, ge=1)
+
+
 class B7Settings(ConstraintSettings):
     recitation_after_first_lecture: bool = False
 
@@ -100,6 +104,7 @@ CONSTRAINT_INDEX: tuple[ConstraintSpec, ...] = tuple(
         ("A7", "Lecture–recitation staffing", "should", "off"),
         ("A8", "Timetable capacity pre-check", "should", "hard"),
         ("A9", "Course satisfaction fairness", "should", "soft"),
+        ("A10", "Top-k course preference", "should", "soft"),
         ("B1", "Section scheduled once", "must", "hard"),
         ("B2", "No room overlap", "must", "hard"),
         ("B3", "No professor overlap", "must", "hard"),
@@ -121,6 +126,7 @@ CONSTRAINT_BY_ID: dict[str, ConstraintSpec] = {c.id: c for c in CONSTRAINT_INDEX
 SETTINGS_CLASS: dict[str, type[ConstraintSettings]] = {
     "A2": A2Settings,
     "A5": A5Settings,
+    "A10": A10Settings,
     "B7": B7Settings,
     "B9": B9Settings,
     "B10": B10Settings,

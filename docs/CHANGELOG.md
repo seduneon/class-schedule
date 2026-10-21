@@ -101,3 +101,10 @@ Legacy files arrived (`refall2026mathcourselist/`, git-ignored: names, e-mails, 
 ## Fixes (2026-10-20)
 - A pre-assignment above a professor's maximum load made Stage A infeasible while `check` reported "No data problems found". New L1 finding `pre_exceeds_caps` (SPEC §7 L1): pre-assignments vs hard caps A2 (max load), A8 ($\alpha_p$), A5 (one section per course, $\mu_p=-1$), A6 (max preps); error if A4 is hard, warning if soft.
 - CLI printed "Validator: all checks passed" for a stage without a solution; it now says nothing was validated.
+
+## Decisions from the previous-capstone comparison (2026-10-21, SPEC §14 D6–D10)
+- **A10 — Top-k course preference** (new, SPEC §5.2, default `soft`, `max_rank: 5`, weight 1, level 2): each section taught with a course rank above $K$, `cannot` or unranked is a slack $e_{p,c,k} \ge n_{p,c,k}$; `hard` filters those variables out. Pre-assignments and pins are exempt. Replaces the old capstone's hard top-5 cutoff without giving up coverage. Validator check, ablation pair (soft and hard) and unit tests in `test_a10_top_k.py`; the A9 ablation test switches A10 off (its instance relies on unranked courses).
+- Rank→weight strategy stays `linear` (D7); no truncated-linear strategy.
+- Legacy converter: `MWForTR` is ignored (D9); survey Q3 alone sets `day_families` and `day_family_mixing`. `MWForTR = 1` without a Q3 answer adds a `mwfortr` review row. `data/examples/medium*` regenerated: 15 professors go from `forbid` to their Q3 answer.
+- Priority stays a single $\pi_p$ for courses and times (D6).
+- SPEC §12: the golden tiny example is *modeled on* the old report's example, not taken from it (D10); the thesis example contradicts itself.

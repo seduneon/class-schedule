@@ -24,6 +24,7 @@ def test_a9_ablation_pair() -> None:
     cfg = fast_config(
         preferences={"unranked_policy": "allow_low", "unranked_weight": 0.0},
         objective={"lambda_course_fairness": 2.0},
+        constraints={"A10": {"mode": "off"}},  # A10 would penalize the unranked courses
     )
     off, on = ablation_a(_inst(), "A9", on_mode="soft", cfg=cfg)
     assert off == ["P got none of their preferred courses (course satisfaction 0)"]

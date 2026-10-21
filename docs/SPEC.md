@@ -109,6 +109,7 @@ The test `tests/test_spec_sync.py` parses this table: every `implemented` row mu
 | A7 | Lecture–recitation staffing | A | should | off | implemented |
 | A8 | Timetable capacity pre-check | A | should | hard | implemented |
 | A9 | Course satisfaction fairness | A | should | soft | implemented |
+| A10 | Top-k course preference | A | should | soft | implemented |
 | B1 | Section scheduled once | B | must | hard* | implemented |
 | B2 | No room overlap | B | must | hard | implemented |
 | B3 | No professor overlap | B | must | hard | implemented |
@@ -175,12 +176,19 @@ This prevents Stage A from producing assignments Stage B cannot schedule.
 Normalized satisfaction $\text{sat}^C_p = \frac{1}{\overline{L}_p}\sum_{c,k} u_{c,k}\, w^C_{p,c,k}\, n_{p,c,k}$.
 Add $m^C \le \text{sat}^C_p\ \forall p$ (professors with load > 0) and reward $\lambda^C m^C$.
 
+**A10 — Top-k course preference**
+The survey tells professors that most assignments fall within their top 5 courses. Let $K$ = `max_rank` (A10 setting, default 5). A triple $(p,c,k)$ is *outside the top $K$* if its rank $\rho^C_{p,c,k}$ (§3.4) is greater than $K$, `cannot`, or unranked. A pre-assignment or pin of $(p,c,k)$ exempts it, as for A3.
+- `hard`: no variable $n_{p,c,k}$ exists for a triple outside the top $K$ (filtered when variables are created).
+- `soft`: each section taught outside the top $K$ is a slack $e_{p,c,k} \ge n_{p,c,k}$, penalized at level 2.
+
+Level 3 keeps the rank weights of §3.4 over all ranks, so among triples outside the top $K$ a better rank still wins. In soft mode, coverage (level 1) and load (A2) come first.
+
 ### 5.3 Objective (lexicographic)
 
 | Level | Sense | Expression |
 |---|---|---|
 | 1 | min | $\sum a_{c,k}$ (uncovered sections) |
-| 2 | min | $\sum$ (configured weight × soft slack) for A2, A5, A6 |
+| 2 | min | $\sum$ (configured weight × soft slack) for A2, A3, A5, A6, A10 |
 | 3 | max | $\sum_p \pi_p\, \text{sat}^C_p + \lambda^C m^C + \text{A5 bonus}$ |
 
 Lexicographic solve (`scheduler.solve.lexicographic`): optimize level $i$, then add the constraint "level-$i$ expression is within `tolerance_i` of its optimum" and continue. Default tolerance is 0 for level 1 and 0 for level 2.
@@ -359,11 +367,11 @@ Input folder with `courses.xlsx`, `professors.xlsx`, `time_room.xlsx` and `prefe
 | `time_room`: one row per usable (days, time, room, cap) | `time_patterns` (distinct days+time; `allowed_section_types = L;R`), `rooms` (building = part of the room ID before the first `.`), `room_availability` (every listed pair) |
 | `professors`: `load` | `load_min = load_max = load` |
 | `professors`: `course_points`, `time_points` | `priority = course_points / 100` (a review row if they differ, D6) |
-| `professors`: `MWForTR = 1` | `day_family_mixing = forbid` |
+| `professors`: `MWForTR` | ignored: survey Q3 asks the professor directly (decision P2, §14). A review row when `MWForTR = 1` and Q3 is unanswered |
 | `professors`: `course<i>, section<i>` | `pre_assignments` (type L, count 1, `section_label = <i>L`) |
 | Survey Q1 (rank every course; columns whose question text mentions a recitation are type R) | `course_preferences`; lecture-column ranks get `section_type = L` when the course also has a recitation column, otherwise no type |
 | Survey Q2 (Yes / No / No preference) | `multi_section_pref` = 1 / −1 / 0 |
-| Survey Q3 (MWF only / TR only / either but not mixed / any day) | `day_families` = MWF / TR / MWF;TR / MWF;TR and `day_family_mixing` = allow / allow / avoid / allow (a `forbid` from `MWForTR` wins) |
+| Survey Q3 (MWF only / TR only / either but not mixed / any day) | `day_families` = MWF / TR / MWF;TR / MWF;TR and `day_family_mixing` = allow / allow / avoid / allow; unanswered = no restriction |
 | Survey Q4, Q5 (rank MWF slots, rank TR slots) | `time_preferences`, ranks as given in each list |
 | Survey Q6 (Yes, one-hour break / comfortable back-to-back) | `schedule_style` = spread / none |
 | Survey Q7 (comments) | `review.csv` only, never interpreted |
@@ -409,6 +417,7 @@ constraints:
   A1: {mode: hard}
   A2: {mode: soft, weight: 10, allow_overload: false}
   A5: {mode: soft, weight: 1, bonus_per_extra: 0.1}
+  A10: {mode: soft, weight: 1, max_rank: 5}
   B5: {mode: hard}
   B9: {mode: soft, weight: 1, reward: 0.05}
   B10: {mode: off, max_consecutive: 3}
@@ -508,7 +517,7 @@ Changing an existing constraint's meaning requires updating its validator check 
 
 - **Unit:** time parsing and overlap (incl. edge cases: touching intervals, buffers, multi-day patterns); clique completeness (every overlapping pair shares a clique); rank→weight strategies; schema validation errors.
 - **Per constraint:** validator tests and the ablation pair test from §11.
-- **Golden:** the tiny example (from the old report: professors A–C; MATH 161 ×2, 351, 361), with hand-computed optimal objective values per level.
+- **Golden:** the tiny example (modeled on the old report's example, with its own data: professors A–C; MATH 161 ×2, 351, 361), with hand-computed optimal objective values per level.
 - **Property (hypothesis + generator):** for random small instances, every hard constraint passes the validator; level-1 coverage equals the LP-relaxation bound whenever the instance is provably coverable; the solution is identical across two runs with the same seed.
 - **Regression:** the bugs of the previous implementation as named tests, e.g. `test_room_cannot_be_double_booked`, `test_overlapping_patterns_with_different_labels_conflict`, `test_same_course_sections_may_overlap_in_conflict_group`.
 - **Spec sync:** parse §4. Every `implemented` ID needs a builder, a check, a config entry and a test file mentioning the ID. Every registered ID must appear in §4.
@@ -549,8 +558,11 @@ Record the decision and date here when settled; update the affected sections.
 | D3 | Do we have curriculum/cohort data for conflict groups beyond course level? | level-based groups only |
 | D4 | Is integrated mode (L7) in capstone scope? | M11, experiment only |
 | D5 | Are real legacy data files available (for the converter and the medium example)? | yes (2026-10-18): Fall 2026 survey export; converter per §8.1, mapping confirmed by the user |
-| D6 | Do priority points $\pi_p$ apply to course preferences, time preferences, or both? | both |
-| D7 | Default rank→weight strategy | `linear` |
+| D6 | Do priority points $\pi_p$ apply to course preferences, time preferences, or both? | both (2026-10-21, P3): a single $\pi_p$ = `course_points/100`; no separate course and time priority; a difference adds a review row |
+| D7 | Default rank→weight strategy | `linear` (2026-10-21, P1: kept; no truncated-linear strategy) |
+| D8 | Courses ranked outside a professor's top 5 (old capstone: forbidden) | 2026-10-21, P1: soft A10 with `max_rank: 5` at level 2; coverage first |
+| D9 | Meaning of the legacy `MWForTR` column | 2026-10-21, P2: ignored; survey Q3 decides day families and mixing |
+| D10 | Golden tiny example vs. the thesis example (§3.4 of the 2025 report) | 2026-10-21, P4: keep our data; the thesis example contradicts itself (capacities in Tables 5 vs 6, C's load) |
 
 ---
 
