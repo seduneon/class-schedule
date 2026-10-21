@@ -45,6 +45,19 @@ def ranked_count(ranks: Iterable[int | None]) -> int:
     return max([len(ranked), *ranked]) if ranked else 0
 
 
+def top_k_distance(rank: int | None, k_max: int, m: int) -> float:
+    """A10 distance past the top K: d = (rank - K) / (m - K) for a ranked item with
+    rank > K, 1 for ``cannot`` or unranked (``None``), 0 inside the top K (SPEC §5.2).
+
+    ``m`` is :func:`ranked_count` of the professor's rows, so m >= rank and d <= 1.
+    """
+    if rank is None:
+        return 1.0
+    if rank <= k_max:
+        return 0.0
+    return (rank - k_max) / (max(m, rank) - k_max)
+
+
 def _raw_weight[K](item: K, ranks: Mapping[K, int | None], m: int, cfg: PreferencesConfig) -> float:
     if item not in ranks:
         return cfg.unranked_weight

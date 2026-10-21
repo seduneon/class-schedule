@@ -179,9 +179,11 @@ Add $m^C \le \text{sat}^C_p\ \forall p$ (professors with load > 0) and reward $\
 **A10 — Top-k course preference**
 The survey tells professors that most assignments fall within their top 5 courses. Let $K$ = `max_rank` (A10 setting, default 5). A triple $(p,c,k)$ is *outside the top $K$* if its rank $\rho^C_{p,c,k}$ (§3.4) is greater than $K$, `cannot`, or unranked. A pre-assignment or pin of $(p,c,k)$ exempts it, as for A3.
 - `hard`: no variable $n_{p,c,k}$ exists for a triple outside the top $K$ (filtered when variables are created).
-- `soft`: each section taught outside the top $K$ is a slack $e_{p,c,k} \ge n_{p,c,k}$, penalized at level 2.
+- `soft`: each section taught outside the top $K$ is a slack $e_{p,c,k} \ge n_{p,c,k}$, penalized at level 2 with weight × $d_{p,c,k}$, where the distance past $K$ is
+  $d_{p,c,k} = \dfrac{\rho^C_{p,c,k} - K}{m_p - K}$ for a ranked $\rho^C_{p,c,k} > K$, and $d_{p,c,k} = 1$ if `cannot` or unranked.
+  $m_p$ is the professor's $m$ from §3.4 (at least the largest rank), so $0 < d \le 1$: rank $K+1$ costs little, the professor's last rank costs as much as an unranked course.
 
-Level 3 keeps the rank weights of §3.4 over all ranks, so among triples outside the top $K$ a better rank still wins. In soft mode, coverage (level 1) and load (A2) come first.
+Because $d \le 1$, a section outside the top $K$ never costs more than one unit of A2 underload (weight 10), so coverage (level 1) and load (A2) still come first. Two sections just past $K$ can cost less than one far down the list. The validator reports the number of sections, with the rank in the message.
 
 ### 5.3 Objective (lexicographic)
 

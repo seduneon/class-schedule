@@ -108,3 +108,4 @@ Legacy files arrived (`refall2026mathcourselist/`, git-ignored: names, e-mails, 
 - Legacy converter: `MWForTR` is ignored (D9); survey Q3 alone sets `day_families` and `day_family_mixing`. `MWForTR = 1` without a Q3 answer adds a `mwfortr` review row. `data/examples/medium*` regenerated: 15 professors go from `forbid` to their Q3 answer.
 - Priority stays a single $\pi_p$ for courses and times (D6).
 - SPEC §12: the golden tiny example is *modeled on* the old report's example, not taken from it (D10); the thesis example contradicts itself.
+- A10 soft penalty now scales with the distance past $K$: weight × $(\rho - K)/(m_p - K)$ per section, 1 for `cannot`/unranked (`preferences.top_k_distance`). On `medium` the count-only version gave one professor a course ranked 18th; at most 1 per section, so A2 underload (weight 10) still comes first.

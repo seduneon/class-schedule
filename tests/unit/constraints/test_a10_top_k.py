@@ -6,6 +6,7 @@ import pytest
 
 from scheduler.config import Config
 from scheduler.domain import CoursePreference, Instance, PreAssignment, SectionType, Solution
+from scheduler.preferences import top_k_distance
 from scheduler.validation import validate
 from tests.factory import ablation_a, asg, fast_config, instance, offering, prof
 
@@ -76,3 +77,37 @@ def test_a10_ablation_pair(on_mode: str) -> None:
     off, on = ablation_a(_binding(), "A10", on_mode=on_mode, cfg=cfg)
     assert off == ["P teaches M2 L: rank 3 is outside the top 2"]
     assert on == []
+
+
+def test_a10_distance_past_k() -> None:
+    assert top_k_distance(3, 5, 33) == 0.0
+    assert top_k_distance(6, 5, 33) == pytest.approx(1 / 28)
+    assert top_k_distance(33, 5, 33) == 1.0
+    assert top_k_distance(None, 5, 33) == 1.0  # cannot or unranked
+
+
+def test_a10_two_near_beat_one_far() -> None:
+    """K = 1. Either P takes M1 and Q takes M2, ranked 20th of 20 (one section, distance 1),
+    or Q takes M1 and both P and R go one rank past K (two sections, distance 1/9 each).
+    A count would pick the first; the distance picks the second."""
+    inst = instance(
+        professors=[prof("P", 1, 1), prof("Q", 1, 1), prof("R", 1, 1)],
+        offerings=[offering("M1"), offering("M2"), offering("M3")],
+        course_preferences=[
+            CoursePreference("P", "M1", 1),
+            CoursePreference("P", "M3", 2),
+            CoursePreference("P", "Z", 10),  # not offered; only raises m_P to 10
+            CoursePreference("Q", "M1", 1),
+            CoursePreference("Q", "M2", 20),
+            CoursePreference("R", "M3", 1),
+            CoursePreference("R", "M2", 2),
+            CoursePreference("R", "Z", 10),
+        ],
+    )
+    from scheduler.pipeline import run_stage_a
+
+    cfg = fast_config(constraints={"A10": {"mode": "soft", "max_rank": 1}})
+    result = run_stage_a(inst, cfg, presolve=False)
+    assert result.solution is not None
+    got = sorted((a.professor_id, a.course_id) for a in result.solution.assignments)
+    assert got == [("P", "M3"), ("Q", "M1"), ("R", "M2")]
