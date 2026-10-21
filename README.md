@@ -24,8 +24,8 @@ One folder of spreadsheets (CSV files, or one Excel workbook with these sheets).
 |---|---|---|
 | **offerings** | Which courses run this term, how many sections of each, their size, and whether they are lectures (L), recitations (R) or labs | MATH 161, lecture, 2 sections of 200 students |
 | **professors** | Each professor's minimum and maximum teaching load, plus optional personal settings (see below) | Load 3–4 units, at most 2 different courses |
-| **course_preferences** | Each professor's ranking of the courses they would like to teach (1 = favourite), or `cannot` | MATH 351: rank 1 |
-| **time_preferences** | Each professor's ranking of class times, or `cannot` | Mon/Wed/Fri 9:00: rank 2 |
+| **course_preferences** *(optional, but see note)* | Each professor's ranking of the courses they would like to teach (1 = favourite), or `cannot` | MATH 351: rank 1 |
+| **time_preferences** *(optional)* | Each professor's ranking of class times, or `cannot` | Mon/Wed/Fri 9:00: rank 2 |
 | **rooms** | Rooms with their capacity and type | Room 7.210, 54 seats, classroom |
 | **room_availability** *(optional)* | When each room may be used, if not always | Room 7.210 only on Tue/Thu mornings |
 | **time_patterns** | The allowed class times | MWF 9:00–9:50, TR 10:30–11:45 |
@@ -33,6 +33,11 @@ One folder of spreadsheets (CSV files, or one Excel workbook with these sheets).
 | **blocked_slots** *(optional)* | Times nobody teaches | Wednesday 12:00–13:00 (seminar) |
 | **pre_assignments** *(optional)* | Decisions already made by the chair | Prof Y teaches MATH 161 |
 | **conflict_groups** *(optional)* | Courses students take together, so they must not clash | First-year core |
+| **pins** *(optional)* | Decisions to keep fixed when solving again: who teaches a course, or a section's time and/or room | MATH 161 1L stays at MWF 9:00 |
+| **section_links** *(optional)* | Which lecture each recitation belongs to (otherwise a recitation is matched against every lecture of its course) | MATH 161 1R goes with 1L |
+
+Note: by default a professor may only teach courses they ranked, so without
+`course_preferences` nobody can be assigned (unless pre-assigned).
 
 Optional personal settings per professor: priority (whose preferences weigh more), maximum
 number of different courses, maximum teaching days, whether they like several sections of
@@ -41,7 +46,8 @@ weekday pattern (Mon/Wed/Fri or Tue/Thu).
 
 The Fall 2026 survey export can be converted into this format automatically. The converter
 also lists everything that needs a human decision (free-text comments, duplicate or
-unmatched survey answers) in `review.csv`.
+unmatched survey answers) in `review.csv`. The old `MWForTR` column is ignored: the
+survey question on weekday patterns decides instead.
 
 ---
 
@@ -115,6 +121,7 @@ timetable and lists exactly which sections are left uncovered.
 | A5 | Several sections of one course | Respects whether a professor prefers one section per course or likes teaching several. |
 | A6 | Different courses | Respects a professor's maximum number of different courses to prepare. |
 | A9 | Fair course choices | Avoids leaving any single professor with only low-ranked courses. |
+| A10 | Top-5 courses | Gives professors courses from their own top 5 (the survey's promise); a course ranked lower only when needed to cover a section or fill a load. |
 | B6 | Spread sections | Sections of the same course are offered at different times, so students have a choice. |
 | B7 | Recitation vs lecture | A recitation does not clash with its own lecture. |
 | B8 | Teaching days | Respects a professor's maximum number of teaching days per week. |
@@ -208,6 +215,9 @@ uv run scheduler timetable DATA --assignments FILE
 uv run scheduler validate DATA solution.json
 uv run scheduler alternatives DATA --assignments FILE
 uv run scheduler repair DATA --previous solution.json
+uv run scheduler report DATA solution.json  # Excel + HTML for an existing solution
+uv run scheduler generate OUT --seed 1      # synthetic test instance
+uv run scheduler experiment ablation        # ablation | scaling | weights | fairness | all
 uv run pytest                               # fast tests; -m slow for large ones
 uv run ruff check . && uv run mypy src
 ```
