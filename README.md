@@ -142,7 +142,7 @@ timetable and lists exactly which sections are left uncovered.
 ## 4. Outputs
 
 Each run creates its own folder, named by date and time, e.g.
-`runs/2026-10-19_15-40-52_fall2026/`. Old results are never overwritten, and
+`runs/2026-10-19_15-40-52_fall2026_no_recitations/`. Old results are never overwritten, and
 `runs/latest` always points to the newest one.
 
 | File | What it is |
@@ -225,15 +225,21 @@ uv run ruff check . && uv run mypy src
 Experiments for the report: `uv run python experiments/run_all.py [--quick]` →
 `experiments/results/` (notes in `docs/report_notes.md`).
 
-Converting the Fall 2026 survey files:
+Converting the Fall 2026 survey files (lectures only; recitations are not scheduled):
 
 ```bash
-uv run scheduler convert-legacy refall2026mathcourselist -o data/private/fall2026 \
-  --add-offering MATH161:R:8:57 --add-offering MATH162:R:15:57 \
-  --add-offering MATH263:R:1:60 --add-offering MATH273:R:2:90
-# read data/private/fall2026/review.csv, then:
-uv run scheduler check data/private/fall2026
+uv run scheduler convert-legacy refall2026mathcourselist -o data/private/fall2026_no_recitations
+# remove the section_type = R rows from course_preferences.csv (see below),
+# read data/private/fall2026_no_recitations/review.csv, then:
+uv run scheduler check data/private/fall2026_no_recitations
 ```
+
+The survey also ranks recitations, so the converter writes `section_type = R` rows to
+`course_preferences.csv` even when no recitation is offered. Delete them: every preference
+row counts toward a professor's number of ranked items (SPEC §3.4), so leftover rows shift
+the course weights. With all 26 recitations added (`--add-offering MATH161:R:8:57` etc.)
+the department's 5 rooms offer only 66 (room, time) slots for 74 sections, so that
+instance cannot be fully scheduled.
 
 `--anonymize` produces a shareable copy (that is how `data/examples/medium` was made).
 Mapping: SPEC §8.1.
