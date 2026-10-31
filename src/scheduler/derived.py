@@ -24,7 +24,13 @@ from scheduler.domain import (
     is_placeholder,
     label_sort_key,
 )
-from scheduler.time import blocked_pattern_ids, off_day_pattern_ids, unavailable_pattern_ids
+from scheduler.time import (
+    blocked_pattern_ids,
+    off_day_pattern_ids,
+    professor_patterns,
+    unavailable_pattern_ids,
+    usable_patterns,
+)
 
 # ----- Stage A ------------------------------------------------------------------
 
@@ -254,6 +260,77 @@ def family_mixing(instance: Instance, config: Config, professor_id: str) -> Fami
     if prof.day_family_mixing is FamilyMixing.AVOID and config.mode("B13") is Mode.HARD:
         return FamilyMixing.FORBID
     return prof.day_family_mixing
+
+
+# ----- A8 with day families (B13 hard) -------------------------------------------------
+
+
+def professor_pattern_sets(
+    instance: Instance, config: Config, professor_id: str
+) -> tuple[tuple[TimePattern, ...], ...]:
+    """A8: the pattern sets alpha_p is the maximum over.
+
+    T_p (available patterns) as a single set; when B13 is hard, T_p keeps only f(t) in Phi_p
+    and, unless chi_p is ``allow``, splits into one set T_p^f per family.
+    """
+    pats = professor_patterns(instance, professor_id, config.time.days)
+    if config.mode("B13") is not Mode.HARD:
+        return (pats,)
+    pats = tuple(t for t in pats if not off_family(instance, professor_id, t.id))
+    if family_mixing(instance, config, professor_id) is FamilyMixing.ALLOW:
+        return (pats,)
+    families = sorted({t.family for t in pats})
+    return tuple(tuple(t for t in pats if t.family == f) for f in families) or ((),)
+
+
+def pinned_family(instance: Instance, config: Config, professor_id: str) -> str | None:
+    """A8: f if B13 is hard and Phi_p = {f} (p is in P_f); None otherwise."""
+    if config.mode("B13") is not Mode.HARD or is_placeholder(professor_id):
+        return None
+    prof = instance.professor_by_id.get(professor_id)
+    if prof is None or len(prof.day_families) != 1:
+        return None
+    return next(iter(prof.day_families))
+
+
+def family_patterns(instance: Instance, config: Config, family: str) -> tuple[TimePattern, ...]:
+    """A8: U^f, the usable patterns of family f."""
+    return tuple(t for t in usable_patterns(instance, config.time.days) if t.family == family)
+
+
+def offering_rooms(instance: Instance, offering: OfferingKey) -> frozenset[str]:
+    """A8: R(c,k), the rooms large enough and of the right type for every section of (c, k)."""
+    secs = instance.sections_by_offering.get(offering, ())
+    return frozenset(r.id for r in instance.rooms if all(room_problem(s, r) is None for s in secs))
+
+
+def family_room_pattern_sets(
+    instance: Instance, config: Config, family: str, rooms: frozenset[str] | None = None
+) -> tuple[tuple[TimePattern, ...], ...]:
+    """A8: per room r in R* (default: all rooms), the usable patterns of family f in A_r;
+    kappa_f(R*) sums their alphas."""
+    pats = family_patterns(instance, config, family)
+    return tuple(
+        tuple(t for t in pats if instance.room_available(r.id, t.id))
+        for r in sorted(instance.rooms, key=lambda r: r.id)
+        if rooms is None or r.id in rooms
+    )
+
+
+def room_set_label(rooms: frozenset[str]) -> str:
+    """Readable R* for messages."""
+    return ", ".join(sorted(rooms))
+
+
+def hard_group_families(
+    instance: Instance, config: Config
+) -> tuple[tuple[ResolvedGroup, str], ...]:
+    """A8: (hard conflict group g, family f) pairs with P_f non-empty, sorted."""
+    families = sorted(
+        {f for p in instance.professor_ids if (f := pinned_family(instance, config, p))}
+    )
+    groups = [g for g in conflict_groups(instance, config) if g.mode is Mode.HARD]
+    return tuple((g, f) for g in groups for f in families)
 
 
 # ----- A7 same_as_lecture ------------------------------------------------------------

@@ -109,3 +109,11 @@ Legacy files arrived (`refall2026mathcourselist/`, git-ignored: names, e-mails, 
 - Priority stays a single $\pi_p$ for courses and times (D6).
 - SPEC §12: the golden tiny example is *modeled on* the old report's example, not taken from it (D10); the thesis example contradicts itself.
 - A10 soft penalty now scales with the distance past $K$: weight × $(\rho - K)/(m_p - K)$ per section, 1 for `cannot`/unranked (`preferences.top_k_distance`). On `medium` the count-only version gave one professor a course ranked 18th; at most 1 per section, so A2 underload (weight 10) still comes first.
+
+## Day families are a rule (2026-10-31, SPEC D11)
+Supervisor feedback on the Fall 2026 report: six professors who answered "Tuesdays and Thursday only" (survey Q3) were given one MWF section, because B13 was soft and Q3 answers 1-2 mapped to `allow` mixing.
+- **B13** default `hard` (priority `must`). Survey Q3 answers 1-3 now map to `day_family_mixing = forbid`; only "I am OK teaching every day" (chosen by nobody) allows mixing. `data/examples/medium*` and the private instance regenerated (only `day_family_mixing` changes, 23 professors).
+- **A8** extended for B13 hard, so Stage A only hands Stage B what fits: $\alpha_p$ uses only the professor's families (one family at a time unless mixing is allowed); per family $f$ and suitable-room set $R^*$, sections of professors pinned to $f$ ≤ (room, pattern) slots of $f$ in $R^*$; per hard conflict group, $\sum_c \max_p$ (sections of $c$ by a professor pinned to $f$) ≤ non-overlapping patterns of $f$. Validator checks, builder, ablation pairs and unit tests in `test_a08_timetable_capacity.py`.
+- L1 `family_capacity` warning: minimum loads of professors pinned to a family vs that family's slots.
+- Fall 2026 (no recitations): all 48 sections scheduled, no professor mixes MWF and TR or teaches off-family; Stage A soft cost unchanged (14.86). Trade-off: one `spread` professor now has a back-to-back pair (B9).
+- Without the A8 extension, B13 hard left 6 sections unscheduled (28 TR-only sections for 26 TR slots; 3 need the 200-seat room, which has 2 TR slots; the 300-level TR courses needed 9 of 6 TR patterns).

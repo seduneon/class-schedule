@@ -90,6 +90,21 @@ def test_alpha_and_group_capacity() -> None:
     assert "only 1 pairwise non-overlapping" in findings["group_capacity"].message
 
 
+def test_family_capacity() -> None:
+    tr = frozenset({"TR"})
+    inst = instance(  # one room: a single TR slot, but P and Q need one section each
+        professors=[prof("P", 1, 2, day_families=tr), prof("Q", 1, 2, day_families=tr)],
+        offerings=[offering("M101", n=2)],
+    )
+    findings = {f.code: f for f in presolve_checks(inst, Config())}
+    assert findings["family_capacity"].message == (
+        "professors who teach only TR need at least 2 section(s) to reach their minimum "
+        "loads but only 1 TR (room, time pattern) slots exist"
+    )
+    soft = presolve_checks(inst, Config().with_mode("B13", "soft"))
+    assert "family_capacity" not in {f.code for f in soft}
+
+
 def test_pins_and_stage_b_inputs() -> None:
     inst = instance(
         professors=[prof("P")],

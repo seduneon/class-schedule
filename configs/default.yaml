@@ -52,4 +52,4 @@ constraints:
   B10: {mode: off, weight: 1, max_consecutive: 3}
   B11: {mode: off, weight: 0.01, scope: room}   # weight x rooms used, subtracted at level 3
   B12: {mode: soft}
-  B13: {mode: soft, weight: 5}              # off-family sections + extra families, level 2
+  B13: {mode: hard, weight: 5}              # day families are a rule (D11); soft: slacks at level 2

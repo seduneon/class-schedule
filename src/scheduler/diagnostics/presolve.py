@@ -15,10 +15,12 @@ from scheduler.config import A2Settings, Config, Mode
 from scheduler.derived import (
     StageBSection,
     conflict_groups,
+    family_room_pattern_sets,
     ineligibility_reason,
     is_eligible,
     pattern_blocked,
     pattern_problem,
+    pinned_family,
     professor_unavailable,
     room_problem,
     stage_a_offering_keys,
@@ -55,6 +57,7 @@ def presolve_checks(
     out += professor_alpha(instance, config, assignments)
     out += pre_assignment_caps(instance, config)
     out += group_capacity(instance, config)
+    out += family_capacity(instance, config)
     out += pin_conflicts(instance, config)
     out += unavailability_off_days(instance, config)
     if assignments is not None:
@@ -347,11 +350,10 @@ def professor_alpha(
 ) -> list[Finding]:
     """alpha_p (A8) vs the sections assigned to p, or vs the minimum load."""
     out: list[Finding] = []
-    days, buf = config.time.days, config.time.buffer_minutes
     assigned = Counter(a.professor_id for a in assignments or ())
     max_units = max((i.units for i in instance.offering_info.values()), default=1.0) or 1.0
     for p in instance.professors:
-        a = alpha(instance, p.id, days, buf)
+        a = alpha(instance, config, p.id)
         if assignments is not None:
             need = assigned.get(p.id, 0)
             what = f"is assigned {need} section(s)"
@@ -391,7 +393,6 @@ def pre_assignment_caps(instance: Instance, config: Config) -> list[Finding]:
     if not config.enabled("A4"):
         return []
     severity: Level = "error" if config.mode("A4") is Mode.HARD else "warning"
-    days, buf = config.time.days, config.time.buffer_minutes
     keys = set(stage_a_offering_keys(instance, config))
     known = set(instance.professor_ids)
     per_prof: dict[str, dict[OfferingKey, int]] = {}
@@ -416,7 +417,7 @@ def pre_assignment_caps(instance: Instance, config: Config) -> list[Finding]:
         if _hard_upper_load(config) and units > prof.load_max + 1e-9:
             add(pid, f"{units:g} units but the maximum load is {prof.load_max:g} (A2)")
         if config.mode("A8") is Mode.HARD:
-            a = alpha(instance, pid, days, buf)
+            a = alpha(instance, config, pid)
             if sum(pre.values()) > a:
                 add(
                     pid,
@@ -451,6 +452,31 @@ def group_capacity(instance: Instance, config: Config) -> list[Finding]:
                     f"conflict group {g.id} has {len(offered)} courses but only {slots} "
                     "pairwise non-overlapping time patterns exist",
                     (g.id,),
+                )
+            )
+    return out
+
+
+def family_capacity(instance: Instance, config: Config) -> list[Finding]:
+    """Per day family f (B13 hard): minimum sections of professors pinned to f vs kappa_f."""
+    max_units = max((i.units for i in instance.offering_info.values()), default=1.0) or 1.0
+    need = Counter[str]()
+    for p in instance.professors:
+        f = pinned_family(instance, config, p.id)
+        if f is not None:
+            need[f] += math.ceil(p.load_min / max_units - 1e-9)
+    out: list[Finding] = []
+    for f, n in sorted(need.items()):
+        sets = family_room_pattern_sets(instance, config, f)
+        kappa = sum(max_independent_patterns(s, config.time.buffer_minutes) for s in sets)
+        if n > kappa:
+            out.append(
+                Finding(
+                    "warning",
+                    "family_capacity",
+                    f"professors who teach only {f} need at least {n} section(s) to reach "
+                    f"their minimum loads but only {kappa} {f} (room, time pattern) slots exist",
+                    (f,),
                 )
             )
     return out

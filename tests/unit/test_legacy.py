@@ -139,7 +139,7 @@ def test_survey_mapping(legacy: Path, tmp_path: Path) -> None:
     # latest response wins; Q3 = either-not-mixed; MWForTR = 1 is ignored (SPEC D9)
     assert (ann.multi_section_pref, ann.schedule_style) == (1, ScheduleStyle.SPREAD)
     assert ann.day_families == frozenset({"MWF", "TR"})
-    assert ann.day_family_mixing is FamilyMixing.AVOID
+    assert ann.day_family_mixing is FamilyMixing.FORBID
     assert (ann.load_min, ann.load_max, ann.priority) == (2, 2, 1.0)
     ranks = inst.course_type_rank
     assert ranks[("ann.alpha", "MATH161", SectionType.L)] == 2

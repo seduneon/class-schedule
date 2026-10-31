@@ -34,12 +34,12 @@ _RECITATION = re.compile(r"recitation|reciation", re.IGNORECASE)
 MULTI_SECTION = {1: 1, 2: -1, 3: 0}
 """Survey Q2 choice -> multi_section_pref (Yes / No / No preference)."""
 DAY_CHOICE = {
-    1: ("MWF", "allow"),
-    2: ("TR", "allow"),
-    3: ("MWF;TR", "avoid"),
+    1: ("MWF", "forbid"),
+    2: ("TR", "forbid"),
+    3: ("MWF;TR", "forbid"),
     4: ("MWF;TR", "allow"),
 }
-"""Survey Q3 choice -> (day_families, day_family_mixing)."""
+"""Survey Q3 choice -> (day_families, day_family_mixing); answers 1-3 never mix (D11)."""
 BREAK_CHOICE = {1: "spread", 2: "none"}
 """Survey Q6 choice -> schedule_style."""
 

@@ -10,10 +10,10 @@ from collections.abc import Sequence
 
 import pulp
 
-from scheduler.config import SolverConfig
+from scheduler.config import Config, SolverConfig
+from scheduler.derived import professor_pattern_sets
 from scheduler.domain import Instance, TimePattern
 from scheduler.solve.backend import SolveStatus, solve
-from scheduler.time.availability import professor_patterns
 from scheduler.time.overlap import overlap_cliques
 
 _SOLVER = SolverConfig(threads=1, time_limit_s=60)
@@ -44,8 +44,14 @@ def max_independent_patterns(patterns: Sequence[TimePattern], buffer: int = 0) -
     return round(result.objective)
 
 
-def alpha(instance: Instance, professor_id: str, days: Sequence[str], buffer: int) -> int:
-    """alpha_p for professor ``p`` on its available patterns (cached per pattern set)."""
-    patterns = professor_patterns(instance, professor_id, days)
+def alpha_of(instance: Instance, patterns: Sequence[TimePattern], buffer: int) -> int:
+    """alpha(T) for a pattern set T (cached per pattern set)."""
     key = ("alpha", frozenset(t.id for t in patterns), buffer)
     return instance.memo(key, lambda: max_independent_patterns(patterns, buffer))
+
+
+def alpha(instance: Instance, config: Config, professor_id: str) -> int:
+    """alpha_p = max over the pattern sets of p (A8; one set unless B13 hard splits families)."""
+    buffer = config.time.buffer_minutes
+    sets = professor_pattern_sets(instance, config, professor_id)
+    return max(alpha_of(instance, s, buffer) for s in sets)

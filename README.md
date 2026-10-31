@@ -103,12 +103,13 @@ Every rule has an ID (used in reports and settings) and can be switched between
 | A1 | Section coverage | Every section gets exactly one professor. |
 | A3 | Eligibility | Professors only teach courses they ranked; never one marked `cannot`. |
 | A4 | Pre-assignments | The chair's decisions made in advance are kept. |
-| A8 | Timetable capacity | Nobody is given more sections than they can fit into non-clashing time slots. |
+| A8 | Timetable capacity | Nobody is given more sections than they can fit into non-clashing time slots, and professors who teach only on Mon/Wed/Fri (or only Tue/Thu) are not given more than those days' rooms and times can hold. |
 | B1 | Scheduled once | Every section gets exactly one time and one room. |
 | B2 | No room clash | A room never holds two classes at the same time. |
 | B3 | No professor clash | A professor never teaches two classes at the same time. |
 | B4 | Unavailability | No class when its professor is unavailable or the time is blocked. |
 | B5 | Conflict groups | Courses that students take together do not clash (by default: 300-level, 400-level and graduate courses, plus any listed groups). Sections of the *same* course may overlap. |
+| B13 | Weekday pattern | A professor teaches only on the days chosen in the survey (Mon/Wed/Fri or Tue/Thu), and never on both unless they answered "any day". |
 
 A1 and B1 are special: if covering everything is truly impossible, the tool still returns a
 timetable and lists exactly which sections are left uncovered.
@@ -127,7 +128,6 @@ timetable and lists exactly which sections are left uncovered.
 | B8 | Teaching days | Respects a professor's maximum number of teaching days per week. |
 | B9 | Compact or spread | Puts a professor's classes back-to-back or apart, as they prefer. |
 | B12 | Fair time choices | Avoids leaving any single professor with only bad times. |
-| B13 | Weekday pattern | Respects a preference for Mon/Wed/Fri or Tue/Thu, and for not mixing the two. |
 
 ### Optional rules (off by default)
 

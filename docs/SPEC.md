@@ -122,7 +122,7 @@ The test `tests/test_spec_sync.py` parses this table: every `implemented` row mu
 | B10 | Max consecutive teaching | B | could | off | implemented |
 | B11 | Room stability | B | could | off | implemented |
 | B12 | Time satisfaction fairness | B | should | soft | implemented |
-| B13 | Day-family preference | B | should | soft | implemented |
+| B13 | Day-family preference | B | must | hard | implemented |
 
 \* A1 and B1 always carry a coverage slack minimized at objective level 1. "hard" here means *no other objective may trade against coverage*. The model stays feasible and reports what could not be covered.
 
@@ -171,6 +171,14 @@ Config option `recitations.staffing`:
 Let $\alpha_p$ be the maximum number of pairwise non-overlapping time patterns available to $p$. Compute it once with a small independent-set MIP on the overlap graph (cached). Then
 $\sum_{c,k} n_{p,c,k} \le \alpha_p$.
 This prevents Stage A from producing assignments Stage B cannot schedule.
+
+*Day families (only when B13 is hard).* Let $T_p$ be the patterns available to $p$, restricted to $f(t) \in \Phi_p$ when $\Phi_p$ is set (placeholders: no restriction). For $T \subseteq$ patterns write $\alpha(T)$ for its maximum number of pairwise non-overlapping patterns and $T^f = \{t \in T : f(t) = f\}$.
+- Per professor: $\alpha_p = \alpha(T_p)$ if $\chi_p = \text{allow}$, else $\alpha_p = \max_f \alpha(T_p^f)$ (all sections must fit in one family).
+- A professor is *pinned to family* $f$ if $\Phi_p = \{f\}$; $P_f$ is the set of such professors.
+- Rooms: let $R(c,k)$ be the rooms large enough and of the right type for the sections of $(c,k)$, and $\kappa_f(R^*) = \sum_{r \in R^*} \alpha(\{t : f(t) = f,\ t \in A_r,\ t \text{ usable}\})$ the number of (room, pattern) slots of family $f$ in rooms $R^*$. For each $f$ with $P_f \ne \emptyset$ and each distinct $R^* = R(c,k)$ among the offerings $P_f$ can teach: $\sum_{p \in P_f}\sum_{(c,k):\, R(c,k) \subseteq R^*} n_{p,c,k} \le \kappa_f(R^*)$. (Hall's condition; exact for room-slot matching when the sets $R(c,k)$ are nested, as with capacity thresholds.)
+- Conflict groups: for each group $g$ in `hard` mode (B5) and each $f$ with $P_f \ne \emptyset$: $m_{g,c,f} \ge \sum_k n_{p,c,k}$ for $c \in g$, $p \in P_f$, with $m_{g,c,f} \ge 0$, and $\sum_{c \in g} m_{g,c,f} \le \alpha(U^f)$, $U$ = usable patterns. (Different courses of a hard group never overlap, and one professor's sections never overlap (B3), so course $c$ needs at least as many non-overlapping patterns of $f$ as any professor pinned to $f$ teaches sections of it.)
+
+These are necessary conditions only (rooms needed by other professors and the interaction between rooms and groups are ignored). In soft mode each inequality gets its own slack. The validator recomputes each count from the assignments.
 
 **A9 — Course satisfaction fairness**
 Normalized satisfaction $\text{sat}^C_p = \frac{1}{\overline{L}_p}\sum_{c,k} u_{c,k}\, w^C_{p,c,k}\, n_{p,c,k}$.
@@ -262,6 +270,7 @@ $\text{sat}^T_p = \frac{1}{|S_p|}\sum_{s\in S_p}\sum_{t,r} w^T_{p,t}\, y_{s,t,r}
 $m^T \le \text{sat}^T_p\ \forall p$; reward $\lambda^T m^T$.
 
 **B13 — Day-family preference**
+Default `hard` (supervisor, 2026-10-31, D11): a professor teaches on the days chosen in the survey, and never on both MWF and TR unless they answered "any day".
 For professors with $\Phi_p$ set (placeholders exempt):
 - Off-family sections: $\sum_{s \in S_p} \sum_{t:\, f(t) \notin \Phi_p} \sum_r y_{s,t,r} \le o^{13}_p$, with $o^{13}_p$ penalized. In hard mode those triples are removed from $\mathcal{F}$ instead (filter, never big-M).
 - Mixing, for professors with $\chi_p \ne \text{allow}$: $\phi_{p,f} \ge \text{busy}_{p,t}$ for every $t$ with $f(t) = f$, $\phi_{p,f} \in \{0,1\}$, and $\sum_f \phi_{p,f} \le 1 + q^{13}_p$. The slack $q^{13}_p$ exists only when $\chi_p = \text{avoid}$ and the mode is soft; $\chi_p = \text{forbid}$ is always hard.
@@ -288,6 +297,7 @@ Runs before model building. Returns structured findings (`severity`, `code`, `me
 - Per professor: $\alpha_p$ (A8) vs assigned or minimum load.
 - Per professor: pre-assignments (A4) vs the hard caps they must fit under: max load (A2 upper bound when hard), $\alpha_p$ (A8), one section per course when $\mu_p=-1$ (A5), max preps (A6), each only when that constraint is hard. Error when A4 is hard (Stage A would be infeasible), warning when A4 is soft.
 - Per conflict group: number of courses vs number of disjoint time cliques.
+- Per day family $f$ (B13 hard): sections that professors pinned to $f$ must teach at least (from minimum loads) vs $\kappa_f$ over all rooms (A8).
 - Data integrity: unknown IDs, duplicate ranks, pre-assignments of non-offered courses, overlapping blocked slots.
 
 After solving, report every nonzero slack with the entities involved ("MATH 161 L: 1 section uncovered; eligible professors all at max load: Prof 3, Prof 9").
@@ -373,7 +383,7 @@ Input folder with `courses.xlsx`, `professors.xlsx`, `time_room.xlsx` and `prefe
 | `professors`: `course<i>, section<i>` | `pre_assignments` (type L, count 1, `section_label = <i>L`) |
 | Survey Q1 (rank every course; columns whose question text mentions a recitation are type R) | `course_preferences`; lecture-column ranks get `section_type = L` when the course also has a recitation column, otherwise no type |
 | Survey Q2 (Yes / No / No preference) | `multi_section_pref` = 1 / −1 / 0 |
-| Survey Q3 (MWF only / TR only / either but not mixed / any day) | `day_families` = MWF / TR / MWF;TR / MWF;TR and `day_family_mixing` = allow / allow / avoid / allow; unanswered = no restriction |
+| Survey Q3 (MWF only / TR only / either but not mixed / any day) | `day_families` = MWF / TR / MWF;TR / MWF;TR and `day_family_mixing` = forbid / forbid / forbid / allow; unanswered = no restriction (D11) |
 | Survey Q4, Q5 (rank MWF slots, rank TR slots) | `time_preferences`, ranks as given in each list |
 | Survey Q6 (Yes, one-hour break / comfortable back-to-back) | `schedule_style` = spread / none |
 | Survey Q7 (comments) | `review.csv` only, never interpreted |
@@ -423,7 +433,7 @@ constraints:
   B5: {mode: hard}
   B9: {mode: soft, weight: 1, reward: 0.05}
   B10: {mode: off, max_consecutive: 3}
-  B13: {mode: soft, weight: 5}
+  B13: {mode: hard, weight: 5}
   # ... one entry per ID in §4
 ```
 
@@ -565,6 +575,7 @@ Record the decision and date here when settled; update the affected sections.
 | D8 | Courses ranked outside a professor's top 5 (old capstone: forbidden) | 2026-10-21, P1: soft A10 with `max_rank: 5` at level 2; coverage first |
 | D9 | Meaning of the legacy `MWForTR` column | 2026-10-21, P2: ignored; survey Q3 decides day families and mixing |
 | D10 | Golden tiny example vs. the thesis example (§3.4 of the 2025 report) | 2026-10-21, P4: keep our data; the thesis example contradicts itself (capacities in Tables 5 vs 6, C's load) |
+| D11 | Is a professor's day family (MWF / TR) a preference or a rule? | 2026-10-31, supervisor: a rule. B13 defaults to `hard`; survey Q3 answers 1–3 map to `forbid` mixing; A8 adds day-family capacity checks so Stage A only hands Stage B what fits |
 
 ---
 

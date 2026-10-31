@@ -117,7 +117,7 @@ CONSTRAINT_INDEX: tuple[ConstraintSpec, ...] = tuple(
         ("B10", "Max consecutive teaching", "could", "off"),
         ("B11", "Room stability", "could", "off"),
         ("B12", "Time satisfaction fairness", "should", "soft"),
-        ("B13", "Day-family preference", "should", "soft"),
+        ("B13", "Day-family preference", "must", "hard"),
     )
 )
 CONSTRAINT_IDS: tuple[str, ...] = tuple(c.id for c in CONSTRAINT_INDEX)

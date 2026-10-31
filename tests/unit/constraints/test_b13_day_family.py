@@ -54,8 +54,10 @@ def test_b13_validator_mixing() -> None:
     allow = _inst()
     assert validate(allow, sol_of(allow), Config(), ids=["B13"]) == []
     avoid = _inst(day_family_mixing=FamilyMixing.AVOID)
-    [v] = validate(avoid, sol_of(avoid), Config(), ids=["B13"])
+    [v] = validate(avoid, sol_of(avoid), Config().with_mode("B13", "soft"), ids=["B13"])
     assert (v.message, v.severity) == ("P mixes day families MWF and TR", "warning")
+    [v] = validate(avoid, sol_of(avoid), Config(), ids=["B13"])
+    assert v.severity == "error"  # avoid means forbid when B13 is hard
     forbid = _inst(day_family_mixing=FamilyMixing.FORBID)
     [v] = validate(forbid, sol_of(forbid), Config(), ids=["B13"])
     assert v.severity == "error"
@@ -90,7 +92,11 @@ def test_b13_forbid_is_hard_even_in_soft_mode() -> None:
     from tests.factory import fast_config
 
     inst = _inst(day_family_mixing=FamilyMixing.FORBID)
-    result = run_stage_b(inst, fast_config(), _two(inst), presolve=False)
+    result = run_stage_b(inst, fast_config().with_mode("B13", "soft"), _two(inst), presolve=False)
     assert result.solution is not None
     assert not [v for v in result.violations if v.id == "B13"]
     assert not any(s.cid == "B13" for s in result.slacks)
+
+
+def test_b13_default_is_hard() -> None:
+    assert Config().mode("B13").value == "hard"
