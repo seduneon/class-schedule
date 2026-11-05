@@ -15,6 +15,7 @@ import yaml
 from pydantic import ValidationError
 
 from scheduler.config import Config, load_config
+from scheduler.derived import NotChecked, stage_a_not_checked
 from scheduler.diagnostics import Finding, has_errors, presolve_checks
 from scheduler.domain import Assignment, Instance, Solution
 from scheduler.io import (
@@ -216,13 +217,7 @@ def run(
                 return
             asg = _solved(stage_a).assignments
         _timetable(inst, cfg, asg, folder, rec)
-        n = rec.hard_violations or 0
-        _say(
-            f"Result: {n} hard violation(s); see the violations sheet in report.xlsx."
-            if n
-            else "Result: no hard violations.",
-            fg=typer.colors.YELLOW if n else typer.colors.GREEN,
-        )
+        _say_result(inst, cfg, rec, "; see the violations sheet in report.xlsx")
 
 
 def _require_stage_b(inst: Instance) -> None:
@@ -252,11 +247,27 @@ def _stage_a_only(
         f"Stage B skipped: no {', '.join(inst.stage_b_missing)} table (professor assignment only).",
         fg=typer.colors.YELLOW,
     )
+    _say_result(inst, cfg, rec, " in Stage A")
+
+
+def result_line(n: int, unchecked: Sequence[NotChecked], where: str = "") -> str:
+    """L9: the final one-line summary of ``run``.
+
+    With parts not checked (SPEC §4, D13) the count covers only the checked rules and every
+    unchecked part is named, so the line never reads as a clean result on its own.
+    """
+    count = f"{n} hard violation(s){where}" if n else "no hard violations"
+    if not unchecked:
+        return f"Result: {count}."
+    names = ", ".join(f"{u.cid} {u.part} (no {', '.join(u.missing)} table)" for u in unchecked)
+    return f"Result: {count} among checked rules; not checked: {names}."
+
+
+def _say_result(inst: Instance, cfg: Config, rec: RunRecord, where: str) -> None:
     n = rec.hard_violations or 0
-    _say(
-        f"Result: {n} hard violation(s) in Stage A." if n else "Result: no hard violations.",
-        fg=typer.colors.YELLOW if n else typer.colors.GREEN,
-    )
+    unchecked = stage_a_not_checked(inst, cfg)
+    ok = not n and not unchecked
+    _say(result_line(n, unchecked, where), fg=typer.colors.GREEN if ok else typer.colors.YELLOW)
 
 
 def _findings_summary(findings: Sequence[Finding]) -> str:

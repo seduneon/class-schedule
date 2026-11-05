@@ -11,7 +11,8 @@ from pytest import MonkeyPatch
 from typer.testing import CliRunner
 
 from scheduler import cli
-from scheduler.cli import app
+from scheduler.cli import app, result_line
+from scheduler.derived import NotChecked
 from scheduler.pipeline import StageResult, run_stage_a
 from tests.factory import ROOT, TINY
 
@@ -313,6 +314,25 @@ def test_run_stops_after_stage_a_without_stage_b_tables(tmp_path: Path) -> None:
     }
     assert "A8 per-professor capacity alpha_p: not checked" in meta["stages"]["A"]["not_checked"][0]
     assert "not_checked" in (folder / "check.txt").read_text()
+    assert "Result: no hard violations." not in r.output
+    assert (
+        "Result: no hard violations among checked rules; not checked: "
+        "A8 per-professor capacity alpha_p (no time_patterns table)"
+    ) in r.output
+
+
+def test_result_line_names_parts_not_checked() -> None:
+    """L9: unchecked parts (D13) qualify the count; with none the line is unchanged."""
+    rooms = NotChecked("A8", "day-family room capacity kappa_f", ("rooms",))
+    assert result_line(0, ()) == "Result: no hard violations."
+    assert result_line(2, (), " in Stage A") == "Result: 2 hard violation(s) in Stage A."
+    assert result_line(0, (rooms,)) == (
+        "Result: no hard violations among checked rules; "
+        "not checked: A8 day-family room capacity kappa_f (no rooms table)."
+    )
+    assert result_line(1, (rooms,), " in Stage A").startswith(
+        "Result: 1 hard violation(s) in Stage A among checked rules; not checked: A8"
+    )
 
 
 def test_timetable_without_stage_b_tables_is_a_user_error(tmp_path: Path) -> None:

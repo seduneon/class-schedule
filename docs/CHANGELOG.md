@@ -130,3 +130,7 @@ The supervisor's Spring 2027 files differ from the Fall ones: `courses.xlsx` has
 - **`run` (L9):** without Stage B tables it stops after Stage A with status `ok`, writes `report.xlsx`, and records `stages.B = {status: skipped_no_data, missing_tables}`. `timetable` (and `run --assignments`) without Stage B tables is a user error (exit 2).
 - Spring 2027 Stage A (default config): all 48 sections covered, no hard violations; 9 units of minimum load cannot be met (55 units of load for 46 offered), so 5 professors are underloaded (A2 soft); two sections outside the professor's top 5 (A10).
 - L1 `duplicate_rank` for time preferences now counts per professor and day family (SPEC §7 L1): the survey ranks MWF and TR slots in separate lists, so every respondent used to get a false warning. Without `time_patterns` the check is reported as `not_checked`.
+
+## Result line names parts not checked (2026-11-05, SPEC §4, L9)
+The Spring 2027 Stage A run ended with "Result: no hard violations." while all three A8 parts were not checked; with survey time patterns (`time_patterns_from_survey: true`) the same assignment broke A8 day-family conflict-group capacity (7 level-400 courses on TR-only professors, 6 TR patterns).
+- `run`'s final line now says the count covers only the checked rules and names every part not checked, e.g. `Result: no hard violations among checked rules; not checked: A8 day-family room capacity kappa_f (no rooms table).`, shown in yellow. With nothing unchecked it is unchanged.
