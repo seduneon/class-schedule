@@ -307,7 +307,7 @@ Runs before model building. Returns structured findings (`severity`, `code`, `me
 - Per professor: pre-assignments (A4) vs the hard caps they must fit under: max load (A2 upper bound when hard), $\alpha_p$ (A8), one section per course when $\mu_p=-1$ (A5), max preps (A6), each only when that constraint is hard. Error when A4 is hard (Stage A would be infeasible), warning when A4 is soft.
 - Per conflict group: number of courses vs number of disjoint time cliques.
 - Per day family $f$ (B13 hard): sections that professors pinned to $f$ must teach at least (from minimum loads) vs $\kappa_f$ over all rooms (A8).
-- Data integrity: unknown IDs, duplicate ranks, pre-assignments of non-offered courses, overlapping blocked slots.
+- Data integrity: unknown IDs, duplicate ranks, pre-assignments of non-offered courses, overlapping blocked slots. Course ranks are duplicates per professor; time ranks per professor *and day family*, since the survey ranks MWF and TR slots in separate lists (§8.1), so MWF rank 1 and TR rank 1 are not a duplicate. Without `time_patterns` the family is unknown and the time-rank check is *not checked* (D13).
 - Missing data (D13): one `not_checked` finding per constraint part that cannot be built (§4). Checks above that need an absent table (rooms per section, $\alpha_p$, $\kappa_f$, conflict-group cliques) are themselves reported as `not_checked` instead of run. References to an absent table (e.g. `time_preferences.pattern_id` with no `time_patterns`) are not integrity errors; they are checked once the table exists.
 
 After solving, report every nonzero slack with the entities involved ("MATH 161 L: 1 section uncovered; eligible professors all at max load: Prof 3, Prof 9").

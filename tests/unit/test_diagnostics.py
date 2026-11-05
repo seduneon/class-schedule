@@ -54,7 +54,11 @@ def test_data_integrity() -> None:
     inst = instance(
         professors=[prof("P")],
         offerings=[offering("M101")],
-        course_preferences=[CoursePreference("P", "M101", 1), CoursePreference("X", "M999", 1)],
+        course_preferences=[
+            CoursePreference("P", "M101", 1),
+            CoursePreference("P", "M102", 1),
+            CoursePreference("X", "M999", 1),
+        ],
         time_preferences=[TimePreference("P", "MWF0900", 1), TimePreference("P", "TR0900", 1)],
         pre_assignments=[
             PreAssignment("P", "M555", SectionType.L, 1),
@@ -208,7 +212,8 @@ def test_missing_stage_b_tables_are_not_checked_not_errors() -> None:
     assert "A8 per-professor capacity alpha_p: not checked (no time_patterns table)" in messages
     assert "L1 rooms per section: not checked (no rooms table)" in messages
     assert "L1 room slot capacity: not checked (no time_patterns, rooms table)" in messages
-    assert len(messages) == 3 + 6
+    assert "L1 duplicate time ranks: not checked (no time_patterns table)" in messages
+    assert len(messages) == 3 + 7
     assert {f.code for f in findings} == {"not_checked", "stage_b_no_data"}
 
 
@@ -216,3 +221,25 @@ def test_present_but_empty_tables_are_still_checked() -> None:
     inst = instance(professors=[prof("P", 1, 1)], offerings=[offering("M1")], rooms=[])
     codes = _codes(inst)
     assert "no_room" in codes and "not_checked" not in codes
+
+
+def _family_ranks(*ranks: tuple[str, int]) -> Instance:
+    return instance(
+        professors=[prof("P")],
+        offerings=[offering("M101")],
+        patterns=[
+            pattern("MWF0900", "MWF", "09:00", "09:50"),
+            pattern("MWF1000", "MWF", "10:00", "10:50"),
+            pattern("TR0900", "TR", "09:00", "10:15"),
+        ],
+        time_preferences=[TimePreference("P", t, r) for t, r in ranks],
+    )
+
+
+def test_duplicate_time_ranks_are_per_day_family() -> None:
+    # SPEC §7 L1: the survey ranks MWF and TR slots in separate lists
+    inst = _family_ranks(("MWF0900", 1), ("TR0900", 1), ("MWF1000", 2))
+    assert "duplicate_rank" not in _codes(inst)
+    tied = _family_ranks(("MWF0900", 1), ("TR0900", 1), ("MWF1000", 1))
+    msgs = [f.message for f in presolve_checks(tied, Config()) if f.code == "duplicate_rank"]
+    assert msgs == ["P gives several time preferences the same rank: 1 MWF (x2)"]

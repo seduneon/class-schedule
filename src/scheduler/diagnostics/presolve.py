@@ -83,7 +83,8 @@ ROOM_SLOTS = ("room slot capacity", ("time_patterns", "rooms"))
 ALPHA = ("per-professor capacity alpha_p", ("time_patterns",))
 GROUPS = ("conflict-group capacity", ("time_patterns",))
 FAMILIES = ("day-family capacity", ("time_patterns", "rooms"))
-L1_CHECKS = (SECTION_ROOMS, SECTION_PATTERNS, ROOM_SLOTS, ALPHA, GROUPS, FAMILIES)
+TIME_RANKS = ("duplicate time ranks", ("time_patterns",))
+L1_CHECKS = (SECTION_ROOMS, SECTION_PATTERNS, ROOM_SLOTS, ALPHA, GROUPS, FAMILIES, TIME_RANKS)
 """L1 checks that need tables beyond Stage A's, with the tables they need."""
 
 
@@ -181,11 +182,18 @@ def data_integrity(instance: Instance, config: Config) -> list[Finding]:
 
     out += _duplicate_ranks(
         "course",
-        [(c.professor_id, c.rank) for c in instance.course_preferences if c.rank is not None],
+        [(c.professor_id, "", c.rank) for c in instance.course_preferences if c.rank is not None],
     )
-    out += _duplicate_ranks(
-        "time", [(t.professor_id, t.rank) for t in instance.time_preferences if t.rank is not None]
-    )
+    if _has(instance, TIME_RANKS):
+        # the survey ranks each day family's slots in its own list (SPEC §7 L1, §8.1)
+        out += _duplicate_ranks(
+            "time",
+            [
+                (t.professor_id, instance.pattern_by_id[t.pattern_id].family, t.rank)
+                for t in instance.time_preferences
+                if t.rank is not None and t.pattern_id in instance.pattern_by_id
+            ],
+        )
 
     for pa in instance.pre_assignments:
         key = (pa.course_id, pa.section_type)
@@ -248,13 +256,15 @@ def data_integrity(instance: Instance, config: Config) -> list[Finding]:
     return out
 
 
-def _duplicate_ranks(kind: str, rows: list[tuple[str, int | None]]) -> list[Finding]:
-    """One warning per professor listing every rank given to more than one item."""
+def _duplicate_ranks(kind: str, rows: list[tuple[str, str, int | None]]) -> list[Finding]:
+    """One warning per professor listing every rank given to more than one item of the
+    same group (rows are (professor, group, rank); group = day family for time ranks)."""
     counts = Counter(rows)
     tied: dict[str, list[str]] = {}
-    for (pid, rank), n in sorted(counts.items(), key=lambda kv: (kv[0][0], kv[0][1] or 0)):
+    for (pid, group, rank), n in sorted(counts.items(), key=lambda kv: (kv[0][:2], kv[0][2] or 0)):
         if n > 1:
-            tied.setdefault(pid, []).append(f"{rank} (x{n})")
+            where = f" {group}" if group else ""
+            tied.setdefault(pid, []).append(f"{rank}{where} (x{n})")
     return [
         Finding(
             "warning",
