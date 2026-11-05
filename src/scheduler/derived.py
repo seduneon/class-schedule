@@ -262,6 +262,59 @@ def family_mixing(instance: Instance, config: Config, professor_id: str) -> Fami
     return prof.day_family_mixing
 
 
+# ----- missing data (SPEC §4 *Not checked*, D13) --------------------------------------
+
+A8_PROFESSORS = "professors"
+A8_ROOMS = "rooms"
+A8_GROUPS = "groups"
+A8_PART_INPUTS: dict[str, tuple[str, ...]] = {
+    A8_PROFESSORS: ("time_patterns",),
+    A8_ROOMS: ("time_patterns", "rooms"),
+    A8_GROUPS: ("time_patterns",),
+}
+"""A8 parts (SPEC §5.2 *Missing data*) and the tables each one needs."""
+A8_PART_NAMES = {
+    A8_PROFESSORS: "per-professor capacity alpha_p",
+    A8_ROOMS: "day-family room capacity kappa_f",
+    A8_GROUPS: "day-family conflict-group capacity",
+}
+
+
+@dataclass(frozen=True)
+class NotChecked:
+    """A constraint part that is not built or validated because its inputs are absent."""
+
+    cid: str
+    part: str
+    missing: tuple[str, ...]
+
+    def __str__(self) -> str:
+        tables = ", ".join(self.missing)
+        return f"{self.cid} {self.part}: not checked (no {tables} table)"
+
+
+def a8_part_active(instance: Instance, config: Config, part: str) -> bool:
+    """Whether A8 part ``part`` is built and validated: A8 enabled, the part applies
+    (rooms and groups only with B13 hard) and its input tables are present."""
+    if not config.enabled("A8") or instance.missing(A8_PART_INPUTS[part]):
+        return False
+    return part == A8_PROFESSORS or config.mode("B13") is Mode.HARD
+
+
+def stage_a_not_checked(instance: Instance, config: Config) -> tuple[NotChecked, ...]:
+    """Stage A constraint parts that cannot be built for lack of data (never ``off`` ones)."""
+    if not config.enabled("A8"):
+        return ()
+    parts = [A8_PROFESSORS]
+    if config.mode("B13") is Mode.HARD:
+        parts += [A8_ROOMS, A8_GROUPS]
+    out = []
+    for part in parts:
+        if missing := instance.missing(A8_PART_INPUTS[part]):
+            out.append(NotChecked("A8", A8_PART_NAMES[part], missing))
+    return tuple(out)
+
+
 # ----- A8 with day families (B13 hard) -------------------------------------------------
 
 

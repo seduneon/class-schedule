@@ -182,3 +182,58 @@ def test_a8_family_group_counts_one_professors_sections() -> None:
         (asg(inst, "P", "M301", "1L"), asg(inst, "Q", "M301", "2L"), asg(inst, "P", "M302", "1L"))
     )
     assert _messages(inst, split) == []  # M301-1L and M301-2L may share a pattern
+
+
+# ----- missing data (SPEC §5.2 *Missing data*, D13) -------------------------------------
+
+
+def test_a8_not_built_without_time_patterns() -> None:
+    from scheduler.pipeline import run_stage_a
+    from tests.factory import fast_config
+
+    inst = instance(
+        professors=[prof("P", 2, 2)],
+        offerings=[offering("M1", n=2)],
+        rooms=[],
+        patterns=[],
+        course_preferences=[CoursePreference("P", "M1", 1)],
+        missing_tables=frozenset({"rooms", "time_patterns"}),
+    )
+    result = run_stage_a(inst, fast_config(), presolve=False)
+    assert result.solution is not None
+    # with alpha_p = 0 from an absent table, A8 would forbid every section
+    assert len(result.solution.assignments) == 2
+    assert [v for v in result.violations if v.cid == "A8"] == []
+    assert result.stats["not_checked"] == [
+        "A8 per-professor capacity alpha_p: not checked (no time_patterns table)",
+        "A8 day-family room capacity kappa_f: not checked (no time_patterns, rooms table)",
+        "A8 day-family conflict-group capacity: not checked (no time_patterns table)",
+    ]
+
+
+def test_a8_rooms_part_not_checked_without_rooms() -> None:
+    # TR-only P and Q: per-professor alpha_p still applies, the room part does not.
+    profs = [prof("P", 0, 3, day_families=TR), prof("Q", 0, 3, day_families=TR)]
+    inst = instance(
+        professors=profs,
+        offerings=[offering("M1", n=3)],
+        rooms=[],
+        patterns=FAMILY_PATTERNS,
+        missing_tables=frozenset({"rooms"}),
+    )
+    over = Solution(tuple(asg(inst, "P", "M1", f"{i}L") for i in (1, 2, 3)))
+    assert _messages(inst, over) == [
+        "P has 3 sections but only 2 non-overlapping available time patterns"
+    ]
+    spread = Solution(
+        (asg(inst, "P", "M1", "1L"), asg(inst, "P", "M1", "2L"), asg(inst, "Q", "M1", "3L"))
+    )
+    assert _messages(inst, spread) == []  # 3 TR sections > 0 TR room slots: not checked
+
+
+def test_a8_off_is_not_reported_as_not_checked() -> None:
+    from scheduler.derived import stage_a_not_checked
+
+    inst = instance(missing_tables=frozenset({"rooms", "time_patterns"}))
+    assert stage_a_not_checked(inst, Config().with_mode("A8", "off")) == ()
+    assert len(stage_a_not_checked(inst, Config())) == 3

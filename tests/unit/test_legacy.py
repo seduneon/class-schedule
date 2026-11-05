@@ -11,8 +11,15 @@ from typer.testing import CliRunner
 
 from scheduler.cli import app
 from scheduler.domain import FamilyMixing, ScheduleStyle, SectionType
-from scheduler.io import read_instance
-from scheduler.io.legacy import ExtraOffering, convert_legacy, course_id, write_legacy
+from scheduler.io import InputError, read_instance
+from scheduler.io.legacy import (
+    ExtraOffering,
+    Fixes,
+    convert_legacy,
+    course_id,
+    load_fixes,
+    write_legacy,
+)
 
 
 def _xlsx(path: Path, rows: list[list[object]]) -> None:
@@ -183,3 +190,181 @@ def test_cli_refuses_real_data_outside_data_private(legacy: Path, tmp_path: Path
     )
     assert res.exit_code == 0, res.output
     assert (tmp_path / "x" / "review.csv").exists()
+
+
+# ----- layout tolerance and fixes (SPEC §8.1.1, §8.1.2, D12-D14) --------------------------
+
+PER_COURSE = [
+    ["Course_code", "Course_title", "Section_number", "Section_type", "Capacity", None],
+    ["MATH 161", "Calculus I", 2, "L", 200, None],
+    ["MATH 161", "Calculus I Recitation", 3, "R", 50, None],
+    ["MATH 351", "Numerical Methods", 1, "L", 60, None],
+    ["MATH 571 (MATH 721) ", "Nonlinear ODE", 1, "L", 30, None],
+]
+
+
+def _spring_survey(src: Path, extra_column: list[object] | None = None) -> None:
+    """The Spring 2027 export: header on the first row, labels without tabs, a preview row."""
+    labels = [
+        "Rank - MATH 161 Calculus I",
+        "Rank - MATH 161 Calculus I Recitation",
+        "Rank - MATH 351  Numerical Methods",
+        "Rank - MATH 702/682 Applied Functional Analysis",
+        *TEXT[4:],
+    ]
+    when = datetime(2026, 11, 2)
+    preview = _survey_row(when, "", "", None, [1, 2, 3, 4, 1, 1, 1, 2, 1, 1, None])
+    preview[15] = "preview"
+    rows = [
+        META + Q,
+        [m.lower() for m in META] + labels,
+        preview,
+        _survey_row(when, "Alpha", "Ann", "ann.alpha@uni.edu", [2, 4, 1, 3, 1, 3, 1, 2, 1, 1, ""]),
+    ]
+    if extra_column is not None:
+        rows = [[*r, v] for r, v in zip(rows, extra_column, strict=True)]
+    _xlsx(src / "preferences.xlsx", rows)
+
+
+def _fixes(**kw: object) -> Fixes:
+    return Fixes.model_validate(kw)
+
+
+def test_per_course_format_and_spring_layout(legacy: Path, tmp_path: Path) -> None:
+    _xlsx(legacy / "courses.xlsx", PER_COURSE)
+    _spring_survey(legacy)
+    result = convert_legacy(legacy, fixes=_fixes(courses_format="per_course"))
+    inst = read_instance(write_legacy(result, tmp_path / "out"))
+    info = inst.offering_info
+    assert info[("MATH161", SectionType.L)].num_sections == 2
+    assert info[("MATH161", SectionType.R)].num_sections == 3
+    # T3: code and title split by spaces; D14: slash cross-listing keeps the first code
+    ranks = inst.course_type_rank
+    assert ranks[("ann.alpha", "MATH161", SectionType.R)] == 4
+    assert ranks[("ann.alpha", "MATH351", SectionType.L)] == 1
+    assert ("ann.alpha", "MATH702") in inst.course_rank
+    kinds = [(r["kind"], r["detail"]) for r in result.review]
+    assert ("fix", "courses.xlsx read per course: Section_number = number of sections") in kinds
+    assert any(k == "preview_response" for k, _d in kinds)
+    assert ("survey_course", "survey Q1 ranks MATH702, which is not offered") in kinds
+    assert ("survey_course", "MATH571 is offered but has no survey Q1 column (no ranks)") in kinds
+
+
+def test_slash_cross_listing_keeps_the_full_code_in_the_title(legacy: Path) -> None:
+    assert course_id("MATH 702/682") == "MATH702"
+    _xlsx(legacy / "courses.xlsx", [*PER_COURSE[:1], ["MATH 742/542", "Stat Prog", 1, "L", 20]])
+    rows = convert_legacy(legacy, fixes=_fixes(courses_format="per_course")).tables["offerings"]
+    assert [(r["course_id"], r["title"]) for r in rows] == [("MATH742", "Stat Prog (MATH 742/542)")]
+
+
+def test_per_course_file_read_per_section_is_an_error(legacy: Path) -> None:
+    _xlsx(legacy / "courses.xlsx", PER_COURSE)
+    with pytest.raises(InputError, match="looks like one row per course: MATH161 L"):
+        convert_legacy(legacy)
+
+
+def test_per_course_repeated_row_is_an_error(legacy: Path) -> None:
+    _xlsx(legacy / "courses.xlsx", [*PER_COURSE, PER_COURSE[1]])
+    with pytest.raises(InputError, match=r"courses\.xlsx row 6: MATH 161 L capacity 200 appears"):
+        convert_legacy(legacy, fixes=_fixes(courses_format="per_course"))
+
+
+def test_header_must_be_in_the_first_rows(legacy: Path) -> None:
+    _xlsx(legacy / "courses.xlsx", [[None]] * 5 + PER_COURSE)
+    with pytest.raises(InputError, match="'Course_code' not found in the first 5 rows"):
+        convert_legacy(legacy)
+    _xlsx(legacy / "courses.xlsx", [[None]] * 2 + PER_COURSE)  # T1: blank rows above are fine
+    convert_legacy(legacy, fixes=_fixes(courses_format="per_course"))
+
+
+def test_unnamed_column_with_data_needs_a_fix(legacy: Path) -> None:
+    _spring_survey(legacy, extra_column=[None, None, 1, 5])
+    with pytest.raises(InputError, match=r"preferences\.xlsx row 3: column AC has data but no"):
+        convert_legacy(legacy)
+    fixes = _fixes(survey_columns={"AC": {"question": "Q1", "course": "MATH 818"}})
+    result = convert_legacy(legacy, fixes=fixes)
+    ranks = {
+        (r["professor_id"], r["course_id"]): r["rank"] for r in result.tables["course_preferences"]
+    }
+    assert ranks[("ann.alpha", "MATH818")] == 5
+    assert {
+        "kind": "fix",
+        "professor_id": "",
+        "detail": "preferences.xlsx column AC (no header) read as Q1 ranks for MATH 818",
+    } in result.review
+
+
+def test_stale_and_bad_survey_column_fixes(legacy: Path) -> None:
+    _spring_survey(legacy)
+    for letter, match in (
+        ("AB", "column AB now has the header 'Q7'; remove the stale fix"),
+        ("ZZ", "column ZZ does not exist"),
+        ("A1", "'A1' is not an Excel column letter"),
+    ):
+        fixes = _fixes(survey_columns={letter: {"question": "Q1", "course": "MATH 818"}})
+        with pytest.raises(InputError, match=match):
+            convert_legacy(legacy, fixes=fixes)
+
+
+def test_course_aliases_apply_everywhere_and_stale_ones_fail(legacy: Path) -> None:
+    fixes = _fixes(course_aliases={"MATH 571 (MATH 721)": "MATH721"})
+    result = convert_legacy(legacy, fixes=fixes)
+    assert "MATH721" in {r["course_id"] for r in result.tables["offerings"]}
+    assert "MATH721" in {r["course_id"] for r in result.tables["course_preferences"]}
+    assert [r["detail"] for r in result.review if r["kind"] == "fix"] == [
+        "course code 'MATH 571 (MATH 721)' read as MATH721 (alias)"
+    ]
+    with pytest.raises(InputError, match="course_aliases never used \\(stale\\): MATH 999"):
+        convert_legacy(legacy, fixes=_fixes(course_aliases={"MATH 999": "X"}))
+
+
+def test_without_time_room_stage_b_tables_are_absent(legacy: Path, tmp_path: Path) -> None:
+    (legacy / "time_room.xlsx").unlink()
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "rooms.csv").write_text("room_id\nOLD\n")  # left over from an earlier conversion
+    result = convert_legacy(legacy, EXTRA)
+    inst = read_instance(write_legacy(result, out))
+    assert not (out / "rooms.csv").exists()
+    assert inst.stage_b_missing == ("time_patterns", "rooms")
+    assert inst.time_rank[("ann.alpha", "TR0900")] == 1  # kept for when the patterns arrive
+    assert [r["detail"] for r in result.review if r["kind"] == "missing_table"] == [
+        "no time_room.xlsx: no time_patterns, rooms, room_availability table; Stage B (times "
+        "and rooms) cannot run"
+    ]
+
+
+def test_time_patterns_from_survey(legacy: Path, tmp_path: Path) -> None:
+    fixes = _fixes(time_patterns_from_survey=True)
+    with pytest.raises(InputError, match="time_patterns_from_survey is stale"):
+        convert_legacy(legacy, fixes=fixes)
+    (legacy / "time_room.xlsx").unlink()
+    inst = read_instance(write_legacy(convert_legacy(legacy, fixes=fixes), tmp_path / "out"))
+    assert inst.pattern_ids == ("MWF0900", "MWF1000", "TR0900")
+    assert inst.stage_b_missing == ("rooms",)
+
+
+def test_load_fixes_rejects_unknown_keys(tmp_path: Path) -> None:
+    path = tmp_path / "fixes.yaml"
+    path.write_text("courses_format: per_course\nsurvey_cols: {}\n")
+    with pytest.raises(InputError, match="survey_cols: Extra inputs are not permitted"):
+        load_fixes(path)
+    path.write_text("courses_format: per_row\n")
+    with pytest.raises(InputError, match="courses_format"):
+        load_fixes(path)
+    path.write_text("")
+    assert load_fixes(path) == Fixes()
+
+
+def test_cli_fixes_option(legacy: Path, tmp_path: Path) -> None:
+    _xlsx(legacy / "courses.xlsx", PER_COURSE)
+    fixes = tmp_path / "fixes.yaml"
+    fixes.write_text("courses_format: per_course\n")
+    out = tmp_path / "x"
+    res = CliRunner().invoke(
+        app, ["convert-legacy", str(legacy), "-o", str(out), "--anonymize", "--fixes", str(fixes)]
+    )
+    assert res.exit_code == 0, res.output
+    assert read_instance(out).offering_info[("MATH161", SectionType.R)].num_sections == 3
+    res = CliRunner().invoke(app, ["convert-legacy", str(legacy), "-o", str(out), "--anonymize"])
+    assert res.exit_code == 2 and "looks like one row per course" in res.output

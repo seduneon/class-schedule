@@ -128,6 +128,8 @@ The test `tests/test_spec_sync.py` parses this table: every `implemented` row mu
 
 **Modes:** `hard` = enforced, no slack. `soft` = slack variable added and penalized at the level given in config. `off` = not built and not checked.
 
+**Not checked (no data, D13).** Separate from `off`: a constraint (or one part of it) whose input tables are absent (§8 *Required tables per stage*) is not built and not validated, whatever its mode. It is never skipped silently: L1 lists it as a finding `not_checked` (severity `warning`, naming the constraint ID, the part and the missing table), and the report and `run.json` (`stages.<stage>.not_checked`) list it again. A constraint set to `off` is not reported this way.
+
 ---
 
 ## 5. Stage A — Assignment
@@ -179,6 +181,13 @@ This prevents Stage A from producing assignments Stage B cannot schedule.
 - Conflict groups: for each group $g$ in `hard` mode (B5) and each $f$ with $P_f \ne \emptyset$: $m_{g,c,f} \ge \sum_k n_{p,c,k}$ for $c \in g$, $p \in P_f$, with $m_{g,c,f} \ge 0$, and $\sum_{c \in g} m_{g,c,f} \le \alpha(U^f)$, $U$ = usable patterns. (Different courses of a hard group never overlap, and one professor's sections never overlap (B3), so course $c$ needs at least as many non-overlapping patterns of $f$ as any professor pinned to $f$ teaches sections of it.)
 
 These are necessary conditions only (rooms needed by other professors and the interaction between rooms and groups are ignored). In soft mode each inequality gets its own slack. The validator recomputes each count from the assignments.
+
+*Missing data (D13).* A8 has three parts with different inputs; each part is built when its inputs exist and is otherwise *not checked* (§4):
+- *Per professor* ($\alpha_p$, with the day-family rule above) and *conflict groups* need `time_patterns` only. `unavailability` and `blocked_slots` refine $T_p$ when present.
+- *Rooms* ($\kappa_f$) needs `time_patterns` and `rooms` (`room_availability` refines $A_r$ when present).
+- Without `time_patterns` no part is built. Stage A then has no timetable check at all, and L1 says so.
+
+When `rooms` is absent, "usable" patterns in the conflict-group part means every pattern allowed for the section type.
 
 **A9 — Course satisfaction fairness**
 Normalized satisfaction $\text{sat}^C_p = \frac{1}{\overline{L}_p}\sum_{c,k} u_{c,k}\, w^C_{p,c,k}\, n_{p,c,k}$.
@@ -299,6 +308,7 @@ Runs before model building. Returns structured findings (`severity`, `code`, `me
 - Per conflict group: number of courses vs number of disjoint time cliques.
 - Per day family $f$ (B13 hard): sections that professors pinned to $f$ must teach at least (from minimum loads) vs $\kappa_f$ over all rooms (A8).
 - Data integrity: unknown IDs, duplicate ranks, pre-assignments of non-offered courses, overlapping blocked slots.
+- Missing data (D13): one `not_checked` finding per constraint part that cannot be built (§4). Checks above that need an absent table (rooms per section, $\alpha_p$, $\kappa_f$, conflict-group cliques) are themselves reported as `not_checked` instead of run. References to an absent table (e.g. `time_preferences.pattern_id` with no `time_patterns`) are not integrity errors; they are checked once the table exists.
 
 After solving, report every nonzero slack with the entities involved ("MATH 161 L: 1 section uncovered; eligible professors all at max load: Prof 3, Prof 9").
 
@@ -337,7 +347,7 @@ A single model with $y_{p,s,t,r}$ (or $n$ plus $y$ linked). Used only for experi
 Every solve keeps its results in its own folder, so runs are never overwritten and can be reproduced and compared.
 - Commands that write results (`run`, `assign`, `timetable`, `report`, `alternatives`, `repair`) write to a new folder `runs/<YYYY-MM-DD_HH-MM-SS>_<instance>/` when `--out` is not given. `<instance>` is the instance folder name (or the workbook name without extension). If the name is taken, `-2`, `-3`, … is appended. `--runs-dir` changes the parent folder. An explicit `--out` writes exactly there instead (with the same metadata files).
 - `runs/latest` is a symlink to the newest run folder (skipped where symlinks are unsupported).
-- `scheduler run <instance>` is the one-step pipeline: L1 check → Stage A → Stage B. With `--assignments FILE` it skips Stage A and uses the (possibly hand-edited) hand-off. L1 findings go to `check.txt` and do not stop the run (as in `assign` / `timetable`, the model reports what cannot be covered); a stage without a solution stops it with exit code 1, keeping what was written so far.
+- `scheduler run <instance>` is the one-step pipeline: L1 check → Stage A → Stage B. With `--assignments FILE` it skips Stage A and uses the (possibly hand-edited) hand-off. L1 findings go to `check.txt` and do not stop the run (as in `assign` / `timetable`, the model reports what cannot be covered); a stage without a solution stops it with exit code 1, keeping what was written so far. If the instance lacks a table Stage B requires (§8), `run` stops after Stage A with status `ok`, exit code 0 and a one-line message naming the missing tables; `run.json` records `stages.B.status = "skipped_no_data"`. `timetable` on such an instance is a user error (exit code 2) naming the missing tables.
 - Each run folder holds, besides the stage outputs (§5.4, L6): `run.json`, `config.yaml` (the resolved config actually used), `log.txt` (console output without colors); `run` also writes `check.txt` (L1 findings).
 - `run.json` fields: `command`, `argv`, `started_at`, `finished_at` (local ISO 8601), `status` (`ok` / `failed`), `instance` (path) and `instance_sha256` (hash over the input files in sorted name order), `config` (path or `null` for built-in defaults), `assignments` (input hand-off path or `null`), `from_run` (name of the run folder the hand-off came from, if any), `scheduler_version`, `git_commit` and `git_dirty` (`null` outside a git checkout), `stages`: per solved stage its status, objective levels, solver stats and validator counts `violations: {error, warning}`, and `hard_violations`: the error count of the last solved stage (its validator checks the whole solution so far; `null` if no stage was solved). A run with hard violations still has status `ok` (it produced a solution); `run` ends with a one-line summary of the count.
 - `runs/` is git-ignored: runs on real data contain names.
@@ -366,17 +376,26 @@ All inputs live in one folder, as CSV files or sheets of a single `.xlsx` with t
 
 Stage B additionally reads Stage A's `assignments` file (§5.4).
 
+**Required tables per stage (D13).** The table above lists columns; which *tables* must exist depends on the stage:
+
+| Stage | Required tables | Used when present |
+|---|---|---|
+| A (`assign`, `check`) | `professors`, `offerings` | `course_preferences`, `pre_assignments`, `pins`; `time_patterns`, `rooms`, `room_availability`, `unavailability`, `blocked_slots`, `conflict_groups` (A8 only) |
+| B (`timetable`) | `professors`, `offerings`, `time_patterns`, `rooms` | all others |
+
+`run` needs the Stage A tables; it runs Stage B only when the Stage B tables exist (L9). A missing required table is an input error naming the stage that needs it. Constraint parts whose inputs are absent are *not checked* (§4). `course_preferences` stays optional, but without it nobody is eligible (A3) unless pre-assigned; L1 reports this as an error-severity finding.
+
 Provide a converter `scheduler convert-legacy` that turns the previous capstone's wide Excel files (one column per course and per time slot) into this format, if the legacy files are available.
 
 ### 8.1 Legacy converter (`scheduler convert-legacy`)
 
-Input folder with `courses.xlsx`, `professors.xlsx`, `time_room.xlsx` and `preferences.xlsx` (the Qualtrics export). Output: a CSV folder in the format above, plus `review.csv` listing everything that needs a human decision (free-text comments, unmatched or duplicate responses, mismatches). Real data is written only under `data/private/`; `--anonymize` replaces names and IDs with `P01, P02, …`, drops e-mails and comments, and is the only way data goes to `data/examples/`.
+Input folder with `courses.xlsx`, `professors.xlsx`, `preferences.xlsx` (the Qualtrics export) and, optionally, `time_room.xlsx`; plus an optional fixes file (`--fixes FILE`, §8.1.2). The input folder is never modified: corrections go in the fixes file, so a resent folder from the supervisor converts again with the same fixes. Output: a CSV folder in the format above, plus `review.csv` listing everything that needs a human decision (free-text comments, unmatched or duplicate responses, mismatches). Real data is written only under `data/private/`; `--anonymize` replaces names and IDs with `P01, P02, …`, drops e-mails and comments, and is the only way data goes to `data/examples/`.
 
 | Legacy source | Target |
 |---|---|
-| `courses`: one row per section (`Course_code, Course_title, Section_number, Section_type, Capacity`) | `offerings`: one row per (course, type, capacity) with `num_sections`; `course_id` = code without spaces and without the cross-listing suffix (`MATH 571 (MATH 721)` → `MATH571`); `level` = first digit × 100; units from §3.3 defaults; `room_type = classroom` |
+| `courses` (`Course_code, Course_title, Section_number, Section_type, Capacity`). The fixes key `courses_format` says what a row is: `per_section` (default; one row per section, `Section_number` = its index) or `per_course` (one row per (course, type), `Section_number` = number of sections) | `offerings`: one row per (course, type, capacity) with `num_sections` = row count (`per_section`) or the sum of `Section_number` (`per_course`); `course_id` = code without spaces and without the cross-listing part (`MATH 571 (MATH 721)` → `MATH571`, `MATH 702/682` → `MATH702`: the first code is kept, the full code stays in `title`); `level` = first digit × 100; units from §3.3 defaults; `room_type = classroom` |
 | `--add-offering COURSE:TYPE:N:CAP` (repeatable) | extra `offerings` rows for sections missing from `courses` (e.g. recitations) |
-| `time_room`: one row per usable (days, time, room, cap) | `time_patterns` (distinct days+time; `allowed_section_types = L;R`), `rooms` (building = part of the room ID before the first `.`), `room_availability` (every listed pair) |
+| `time_room` (optional): one row per usable (days, time, room, cap) | `time_patterns` (distinct days+time; `allowed_section_types = L;R`), `rooms` (building = part of the room ID before the first `.`), `room_availability` (every listed pair). Absent: no `rooms` or `room_availability`; `time_patterns` only if the fixes file sets `time_patterns_from_survey: true` (one pattern per Q4/Q5 slot, `allowed_section_types = L;R`), otherwise none. Either way a review row says which tables are missing and that Stage B cannot run (§8) |
 | `professors`: `load` | `load_min = load_max = load` |
 | `professors`: `course_points`, `time_points` | `priority = course_points / 100` (a review row if they differ, D6) |
 | `professors`: `MWForTR` | ignored: survey Q3 asks the professor directly (decision P2, §14). A review row when `MWForTR = 1` and Q3 is unanswered |
@@ -388,7 +407,41 @@ Input folder with `courses.xlsx`, `professors.xlsx`, `time_room.xlsx` and `prefe
 | Survey Q6 (Yes, one-hour break / comfortable back-to-back) | `schedule_style` = spread / none |
 | Survey Q7 (comments) | `review.csv` only, never interpreted |
 
-Responses are matched to professors by e-mail, then by last name (a review row either way if the match is not exact). If a professor answered twice, the latest `RecordedDate` wins (review row). Professors without a response get no preferences.
+Responses are matched to professors by e-mail, then by last name (a review row either way if the match is not exact). If a professor answered twice, the latest `RecordedDate` wins (review row). Professors without a response get no preferences. Responses with `DistributionChannel = preview` (survey previews) are skipped with a review row.
+
+#### 8.1.1 Layout tolerance (closed list)
+
+The converter tolerates differences in *layout*: where a value sits. It never guesses *meaning*: what a value says. Only the tolerances below are allowed; anything else stops the conversion with an error naming the file, row and column. A new tolerance needs a SPEC change and a decision row in §14.
+
+| # | Tolerance | Rule |
+|---|---|---|
+| T1 | Header row position | The header is the first of the first 5 rows containing the file's anchor: `Course_code` (courses), `first_name` (professors), `ResponseId` (preferences), `room` (time_room). In `preferences` the row directly below the header holds the question texts, and responses start on the next row. No anchor in the first 5 rows: error |
+| T2 | Column order | Columns are found by header name, in any order. Columns with an empty header and no data are ignored. A column with an empty header *and* data is an error unless the fixes file names it (`survey_columns`) |
+| T3 | Whitespace | Values and labels are trimmed; runs of spaces and tabs inside course codes, slot labels and names count as one space. So a Q1 label is `<code> <title>` whether a tab or spaces separate them; the code is the leading `<letters> <3 digits>` with an optional cross-listing (`/<3 digits>` or `(<code>)`). A Q1 label without such a code is an error |
+| T4 | Blank rows | Rows with no values are skipped |
+
+Checks that guard meaning (errors, not tolerances):
+- `courses_format: per_section` but some (course, type) appears once with `Section_number` > 1 and no rows 1 … `Section_number` − 1: the file looks per-course; declare `courses_format`.
+- `courses_format: per_course` but a (course, type, capacity) repeats, or `Section_number` is not a positive integer.
+- A survey Q1 column whose course is not in `courses` (after aliases), or an offered course with no Q1 column: a review row (not an error; that course simply has no preferences).
+
+#### 8.1.2 Fixes file
+
+A YAML file kept next to the raw folders (e.g. `data/private/spring2027/fixes.yaml`, never in the input folder). Every key is optional; unknown keys are errors.
+
+```yaml
+courses_format: per_course            # per_section (default) | per_course
+course_aliases:                       # raw code -> course_id, applied in courses and survey
+  "MATH 571 (MATH 721)": MATH721      # overrides the default cross-listing rule
+survey_columns:                       # Excel column letter -> meaning, for columns with an empty header
+  AZ: {question: Q1, course: "MATH 818"}
+time_patterns_from_survey: true       # only when time_room.xlsx is absent
+```
+
+Rules:
+- Every fix that changes the output adds one review row (`kind = fix`) saying what it changed, so the supervisor sees each correction.
+- A fix that no longer applies is an error, not a no-op: an alias whose raw code appears nowhere, a `survey_columns` entry whose column now has a header, `time_patterns_from_survey` while `time_room.xlsx` exists. This catches stale fixes when the supervisor resends corrected files.
+- Fixes declare meaning only; they never change values the supervisor sent (ranks, loads, capacities). A data value that looks wrong goes to `review.csv` and back to the supervisor.
 
 ---
 
@@ -576,6 +629,9 @@ Record the decision and date here when settled; update the affected sections.
 | D9 | Meaning of the legacy `MWForTR` column | 2026-10-21, P2: ignored; survey Q3 decides day families and mixing |
 | D10 | Golden tiny example vs. the thesis example (§3.4 of the 2025 report) | 2026-10-21, P4: keep our data; the thesis example contradicts itself (capacities in Tables 5 vs 6, C's load) |
 | D11 | Is a professor's day family (MWF / TR) a preference or a rule? | 2026-10-31, supervisor: a rule. B13 defaults to `hard`; survey Q3 answers 1–3 map to `forbid` mixing; A8 adds day-family capacity checks so Stage A only hands Stage B what fits |
+| D12 | How does the converter handle format changes in the supervisor's files (Spring 2027: courses one row per course; survey header one row higher; an unlabeled MATH 818 column)? | 2026-11-05, user: raw files are never edited. Layout differences are tolerated only from the closed list in §8.1.1; meaning is declared in a fixes file (§8.1.2), each fix logged in `review.csv`, stale fixes are errors. `MATH 818` stays `MATH818` (supervisor) |
+| D13 | Can Stage A run without Stage B data (Spring 2027: no `time_room`)? | 2026-11-05, user: yes. Required tables per stage (§8); constraint parts without inputs are *not checked* and reported, never silently skipped (§4); A8 splits by input (§5.2); `run` stops after Stage A (L9) |
+| D14 | Course ID of a slash cross-listing (`MATH 702/682`) | 2026-11-05, user (approved with the D12/D13 draft): first code (`MATH702`), full code kept in the title; override per course with `course_aliases`. The `(…)` form keeps its old title |
 
 ---
 

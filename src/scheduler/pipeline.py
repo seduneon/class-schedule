@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from scheduler.config import Config
+from scheduler.derived import stage_a_not_checked
 from scheduler.diagnostics.postsolve import SlackReport, explain_uncovered
 from scheduler.diagnostics.presolve import Finding, presolve_checks
 from scheduler.domain import Assignment, Instance, SectionType, Solution
@@ -101,7 +102,10 @@ def run_stage_a(
     if previous is not None:
         add_repair_level(ctx, previous)
     lex = solve_lexicographic(ctx, config.solver)
-    result = StageResult("A", lex.status, None, lex, findings, ctx=ctx, stats=_stats(ctx, lex))
+    stats = _stats(ctx, lex) | {
+        "not_checked": [str(n) for n in stage_a_not_checked(instance, config)]
+    }
+    result = StageResult("A", lex.status, None, lex, findings, ctx=ctx, stats=stats)
     if not lex.status.has_solution:
         return result
     base = extract_stage_a(ctx)

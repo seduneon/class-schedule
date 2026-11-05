@@ -36,11 +36,13 @@ from scheduler.domain.entities import (
     placeholder_for,
     section_label,
 )
-from scheduler.domain.instance import Instance, OfferingInfo
+from scheduler.domain.instance import STAGE_A_TABLES, STAGE_B_TABLES, Instance, OfferingInfo
 
 __all__ = [
     "DAYS",
     "DAY_LETTERS",
+    "STAGE_A_TABLES",
+    "STAGE_B_TABLES",
     "TBA_PREFIX",
     "Assignment",
     "BlockedSlot",

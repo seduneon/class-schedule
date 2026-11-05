@@ -314,4 +314,3 @@ TABLES: dict[str, type[Row]] = {
     "pins": PinRow,
     "section_links": SectionLinkRow,
 }
-REQUIRED_TABLES: tuple[str, ...] = ("professors", "offerings", "rooms", "time_patterns")

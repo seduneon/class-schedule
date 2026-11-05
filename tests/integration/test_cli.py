@@ -284,3 +284,43 @@ def test_pre_assignment_over_max_load_is_flagged_not_passed(tmp_path: Path) -> N
     assert "Stage A: infeasible" in r.output
     assert "all checks passed" not in r.output
     assert "No solution, so nothing was validated." in r.output
+
+
+def _stage_a_only_copy(tmp_path: Path) -> Path:
+    """The tiny example without Stage B tables (SPEC D13)."""
+    src = tmp_path / "tiny_a"
+    src.mkdir()
+    for f in TINY.glob("*.csv"):
+        if f.stem not in ("rooms", "time_patterns", "room_availability"):
+            (src / f.name).write_bytes(f.read_bytes())
+    return src
+
+
+def test_run_stops_after_stage_a_without_stage_b_tables(tmp_path: Path) -> None:
+    src, runs = _stage_a_only_copy(tmp_path), tmp_path / "runs"
+    r = runner.invoke(app, ["run", str(src), "--runs-dir", str(runs)])
+    assert r.exit_code == 0, r.output
+    assert "Stage B skipped: no time_patterns, rooms table" in r.output
+    folder = _only_run(runs)
+    for name in ("assignments.csv", "stage_a.json", "solution.json", "report.xlsx", "check.txt"):
+        assert (folder / name).exists(), name
+    assert not (folder / "timetable.html").exists()
+    meta = json.loads((folder / "run.json").read_text())
+    assert meta["status"] == "ok" and meta["hard_violations"] == 0
+    assert meta["stages"]["B"] == {
+        "status": "skipped_no_data",
+        "missing_tables": ["time_patterns", "rooms"],
+    }
+    assert "A8 per-professor capacity alpha_p: not checked" in meta["stages"]["A"]["not_checked"][0]
+    assert "not_checked" in (folder / "check.txt").read_text()
+
+
+def test_timetable_without_stage_b_tables_is_a_user_error(tmp_path: Path) -> None:
+    src = _stage_a_only_copy(tmp_path)
+    runner.invoke(app, ["assign", str(src), "-o", str(tmp_path / "a")])
+    r = runner.invoke(
+        app,
+        ["timetable", str(src), "--assignments", str(tmp_path / "a" / "assignments.csv")],
+    )
+    assert r.exit_code == 2
+    assert "rooms: required table is missing (needed by Stage B)" in r.output

@@ -168,6 +168,10 @@ class RunRecord:
         if solved:
             self.hard_violations = errors
 
+    def skip_stage(self, stage: str, missing: tuple[str, ...]) -> None:
+        """Record a stage that did not run because required tables are absent (L9, D13)."""
+        self.stages[stage] = {"status": "skipped_no_data", "missing_tables": list(missing)}
+
     def as_dict(self) -> dict[str, Any]:
         commit, dirty = git_state()
         return {

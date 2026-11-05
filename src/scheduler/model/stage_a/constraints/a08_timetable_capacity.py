@@ -6,6 +6,10 @@ from typing import Any
 
 from scheduler.config import ConstraintSettings, Mode
 from scheduler.derived import (
+    A8_GROUPS,
+    A8_PROFESSORS,
+    A8_ROOMS,
+    a8_part_active,
     family_patterns,
     family_room_pattern_sets,
     hard_group_families,
@@ -28,10 +32,23 @@ class TimetableCapacity:
     professors pinned to it (P_f) and each room set R* = R(c,k):
     sum_{p in P_f} sum_{(c,k): R(c,k) subset of R*} n_{p,c,k} <= kappa_f(R*), and per hard
     conflict group g: m_{g,c,f} >= sum_k n_{p,c,k} (p in P_f), sum_{c in g} m_{g,c,f} <= alpha(U^f).
+
+    Each part is built only when its input tables exist (SPEC §5.2 *Missing data*, D13).
     """
 
     def build(self, ctx: ModelContext, settings: ConstraintSettings) -> None:
         teaching = sorted({p for (p, _c, _k) in n_vars(ctx)})
+        inst, cfg = ctx.instance, ctx.config
+        if a8_part_active(inst, cfg, A8_PROFESSORS):
+            self._professors(ctx, settings, teaching)
+        if a8_part_active(inst, cfg, A8_ROOMS):
+            self._family_rooms(ctx, settings, teaching)
+        if a8_part_active(inst, cfg, A8_GROUPS):
+            self._family_groups(ctx, settings, teaching)
+
+    def _professors(
+        self, ctx: ModelContext, settings: ConstraintSettings, teaching: list[str]
+    ) -> None:
         for p in teaching:
             a = alpha(ctx.instance, ctx.config, p)
             upper = sum(
@@ -45,8 +62,6 @@ class TimetableCapacity:
                 ctx, settings, p, [p], f"{p}: more sections than non-overlapping time patterns"
             )
             ctx.add_constraint(sections_expr(ctx, p) <= rhs, "A8", [p])
-        self._family_rooms(ctx, settings, teaching)
-        self._family_groups(ctx, settings, teaching)
 
     @staticmethod
     def _slack(

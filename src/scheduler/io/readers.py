@@ -12,6 +12,7 @@ import pandas as pd
 from pydantic import ValidationError
 
 from scheduler.domain import (
+    STAGE_A_TABLES,
     Assignment,
     BlockedSlot,
     ConflictGroup,
@@ -33,7 +34,6 @@ from scheduler.domain import (
     Unavailability,
 )
 from scheduler.io.schemas import (
-    REQUIRED_TABLES,
     TABLES,
     AssignmentRow,
     BlockedSlotRow,
@@ -145,8 +145,8 @@ def _check_unique(
 def build_instance(tables: dict[str, list[dict[str, object]]]) -> Instance:
     """Validate raw records and build an :class:`Instance` (raises :class:`InputError`)."""
     errors: list[RowError] = [
-        RowError(name, None, "required table is missing")
-        for name in REQUIRED_TABLES
+        RowError(name, None, "required table is missing (needed by Stage A and Stage B)")
+        for name in STAGE_A_TABLES
         if name not in tables
     ]
 
@@ -266,6 +266,7 @@ def build_instance(tables: dict[str, list[dict[str, object]]]) -> Instance:
             RoomAvailability(r.room_id, r.pattern_id)
             for r in sorted(room_avail, key=lambda r: (r.room_id, r.pattern_id))
         ),
+        missing_tables=frozenset(name for name in TABLES if name not in tables),
     )
 
 

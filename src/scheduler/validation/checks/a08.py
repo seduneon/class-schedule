@@ -6,6 +6,10 @@ from collections import Counter, defaultdict
 
 from scheduler.config import Config, ConstraintSettings
 from scheduler.derived import (
+    A8_GROUPS,
+    A8_PROFESSORS,
+    A8_ROOMS,
+    a8_part_active,
     family_patterns,
     family_room_pattern_sets,
     hard_group_families,
@@ -27,11 +31,11 @@ def check_a8(
     available to p (computed here without a solver). With B13 hard, alpha_p respects Phi_p and
     chi_p, and per family f and room set R*: sections of P_f that fit only in R* <= kappa_f(R*),
     and per hard group g: sum over its courses c of max_{p in P_f} (sections of c taught by p)
-    <= alpha(U^f)."""
+    <= alpha(U^f). Parts whose input tables are absent are not checked (SPEC D13)."""
     buf = config.time.buffer_minutes
     counts = Counter(a.professor_id for a in solution.assignments)
     out = []
-    for pid, n in sorted(counts.items()):
+    for pid, n in sorted(counts.items()) if a8_part_active(instance, config, A8_PROFESSORS) else ():
         if pid not in instance.professor_by_id:
             continue
         sets = professor_pattern_sets(instance, config, pid)
@@ -54,7 +58,7 @@ def check_a8(
             f = pinned[a.professor_id]
             demand[f][offering_rooms(instance, (a.course_id, a.section_type))] += 1
             own[f][(a.course_id, a.professor_id)] += 1
-    for f in sorted(demand):
+    for f in sorted(demand) if a8_part_active(instance, config, A8_ROOMS) else ():
         for rooms in sorted({r for r in demand[f] if r}, key=sorted):
             n = sum(m for r, m in demand[f].items() if r and r <= rooms)
             sets = family_room_pattern_sets(instance, config, f, rooms)
@@ -71,7 +75,8 @@ def check_a8(
                         size=n - kappa,
                     )
                 )
-    for g, f in hard_group_families(instance, config):
+    groups = a8_part_active(instance, config, A8_GROUPS)
+    for g, f in hard_group_families(instance, config) if groups else ():
         need: dict[str, int] = {}
         for (c, _p), n in own[f].items():
             if c in g.course_ids:

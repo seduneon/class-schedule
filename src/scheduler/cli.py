@@ -201,6 +201,8 @@ def run(
     """L9: check → Stage A → Stage B in one step, all results in a new run folder."""
     inst, cfg = _load(instance, config)
     asg = read_assignments(assignments) if assignments else None
+    if asg is not None:
+        _require_stage_b(inst)
     with _run_folder("run", instance, config, cfg, out, runs_dir, assignments) as (folder, rec):
         findings = presolve_checks(inst, cfg, asg)
         (folder / "check.txt").write_text(
@@ -208,7 +210,11 @@ def run(
         )
         _say(_findings_summary(findings))
         if asg is None:
-            asg = _assign(inst, cfg, folder, rec, "csv")
+            stage_a = _assign(inst, cfg, folder, rec, "csv")
+            if inst.stage_b_missing:
+                _stage_a_only(inst, cfg, folder, rec, stage_a)
+                return
+            asg = _solved(stage_a).assignments
         _timetable(inst, cfg, asg, folder, rec)
         n = rec.hard_violations or 0
         _say(
@@ -219,14 +225,46 @@ def run(
         )
 
 
+def _require_stage_b(inst: Instance) -> None:
+    """Stage B needs its tables (SPEC §8, D13): a user error naming the missing ones."""
+    if inst.stage_b_missing:
+        raise InputError(
+            [
+                RowError(name, None, "required table is missing (needed by Stage B)")
+                for name in inst.stage_b_missing
+            ]
+        )
+
+
+def _solved(result: StageResult) -> Solution:
+    if result.solution is None:  # pragma: no cover - _assign exits first
+        raise typer.Exit(1)
+    return result.solution
+
+
+def _stage_a_only(
+    inst: Instance, cfg: Config, folder: Path, rec: RunRecord, result: StageResult
+) -> None:
+    """L9: no Stage B data, so stop after Stage A with its report (status ok, exit 0)."""
+    _write_outputs(folder, inst, cfg, _solved(result), result)
+    rec.skip_stage("B", inst.stage_b_missing)
+    _say(
+        f"Stage B skipped: no {', '.join(inst.stage_b_missing)} table (professor assignment only).",
+        fg=typer.colors.YELLOW,
+    )
+    n = rec.hard_violations or 0
+    _say(
+        f"Result: {n} hard violation(s) in Stage A." if n else "Result: no hard violations.",
+        fg=typer.colors.YELLOW if n else typer.colors.GREEN,
+    )
+
+
 def _findings_summary(findings: Sequence[Finding]) -> str:
     counts = {sev: sum(f.severity == sev for f in findings) for sev in ("error", "warning")}
     return f"Check: {counts['error']} error(s), {counts['warning']} warning(s) (see check.txt)."
 
 
-def _assign(
-    inst: Instance, cfg: Config, out: Path, rec: RunRecord, fmt: str
-) -> tuple[Assignment, ...]:
+def _assign(inst: Instance, cfg: Config, out: Path, rec: RunRecord, fmt: str) -> StageResult:
     result = run_stage_a(inst, cfg)
     _print_result(result)
     _record(rec, result)
@@ -237,7 +275,7 @@ def _assign(
     _say(
         f"Wrote {path} (edit it, then run `scheduler timetable` or `scheduler run --assignments`)."
     )
-    return result.solution.assignments
+    return result
 
 
 def _timetable(
@@ -277,6 +315,7 @@ def timetable(
 ) -> None:
     """Stage B: time patterns and rooms; writes solution.json, report.xlsx, timetable.html."""
     inst, cfg = _load(instance, config)
+    _require_stage_b(inst)
     asg = read_assignments(assignments)
     with _run_folder("timetable", instance, config, cfg, out, runs_dir, assignments) as (
         folder,
@@ -503,7 +542,9 @@ def _under_data_private(path: Path) -> bool:
 @app.command("convert-legacy")
 @_user_errors
 def convert_legacy_cmd(
-    source: Annotated[Path, typer.Argument(help="Folder with the four legacy .xlsx files.")],
+    source: Annotated[
+        Path, typer.Argument(help="Folder with the legacy .xlsx files (never modified).")
+    ],
     out: PlainOutOpt = Path("data/private/legacy"),
     add_offering: Annotated[
         list[str] | None,
@@ -512,9 +553,13 @@ def convert_legacy_cmd(
     anonymize: Annotated[
         bool, typer.Option(help="Rename professors P01.. and drop comments (SPEC §8.1).")
     ] = False,
+    fixes: Annotated[
+        Path | None,
+        typer.Option(help="YAML fixes file: declared corrections, each logged (SPEC §8.1.2)."),
+    ] = None,
 ) -> None:
-    """SPEC §8.1: convert the previous capstone's wide Excel files into the §8 tables."""
-    from scheduler.io.legacy import ExtraOffering, convert_legacy, write_legacy
+    """SPEC §8.1: convert the supervisor's wide Excel files into the §8 tables."""
+    from scheduler.io.legacy import ExtraOffering, convert_legacy, load_fixes, write_legacy
 
     if not anonymize and not _under_data_private(out):
         raise typer.BadParameter(
@@ -525,7 +570,8 @@ def convert_legacy_cmd(
         extra = tuple(ExtraOffering.parse(x) for x in add_offering or [])
     except ValueError as exc:
         raise typer.BadParameter(str(exc), param_hint="--add-offering") from exc
-    result = write_legacy(convert_legacy(source, extra, anonymize), out)
+    declared = load_fixes(fixes) if fixes is not None else None
+    result = write_legacy(convert_legacy(source, extra, anonymize, declared), out)
     _say(f"Wrote the instance to {result}; review {result / 'review.csv'} before solving.")
 
 

@@ -73,7 +73,35 @@ def test_row_level_errors_are_reported() -> None:
     assert "professors row 3: duplicate key" in text
     assert "offerings row 2: section_type" in text
     assert "course_preferences row 2: rank" in text
-    assert "time_patterns: required table is missing" in text
+    assert "time_patterns" not in text  # Stage B table: absent is allowed (SPEC D13)
+
+
+def test_stage_a_tables_required() -> None:
+    with pytest.raises(InputError) as exc:
+        build_instance({"professors": []})
+    assert "offerings: required table is missing (needed by Stage A and Stage B)" in str(exc.value)
+
+
+def test_missing_stage_b_tables_recorded(tmp_path: Path) -> None:
+    tables = {
+        name: rows
+        for name, rows in pd_tables(TINY).items()
+        if name not in ("rooms", "time_patterns", "room_availability")
+    }
+    inst = build_instance(tables)
+    assert inst.stage_b_missing == ("time_patterns", "rooms")
+    assert not inst.has_table("rooms") and inst.has_table("offerings")
+    # absent tables stay absent on a round trip (an empty CSV would count as present)
+    folder = write_instance(inst, tmp_path / "out")
+    assert not (folder / "rooms.csv").exists() and not (folder / "time_patterns.csv").exists()
+    assert read_instance(folder).stage_b_missing == ("time_patterns", "rooms")
+    assert read_instance(TINY).stage_b_missing == ()
+
+
+def pd_tables(path: Path) -> dict[str, list[dict[str, object]]]:
+    from scheduler.io.readers import load_tables
+
+    return load_tables(path)
 
 
 def test_units_default_by_section_type() -> None:

@@ -23,6 +23,7 @@ from scheduler.derived import (
     pinned_family,
     professor_unavailable,
     room_problem,
+    stage_a_not_checked,
     stage_a_offering_keys,
     stage_b_sections,
 )
@@ -49,15 +50,20 @@ def presolve_checks(
 ) -> list[Finding]:
     """Run every L1 check. With ``assignments`` (Stage B input), also check those sections."""
     out: list[Finding] = []
+    out += not_checked(instance, config)
     out += data_integrity(instance, config)
     out += load_capacity(instance, config)
     out += offering_staffing(instance, config)
     out += section_rooms(instance, config)
-    out += room_slot_capacity(instance, config)
-    out += professor_alpha(instance, config, assignments)
+    if _has(instance, ROOM_SLOTS):
+        out += room_slot_capacity(instance, config)
+    if _has(instance, ALPHA):
+        out += professor_alpha(instance, config, assignments)
     out += pre_assignment_caps(instance, config)
-    out += group_capacity(instance, config)
-    out += family_capacity(instance, config)
+    if _has(instance, GROUPS):
+        out += group_capacity(instance, config)
+    if _has(instance, FAMILIES):
+        out += family_capacity(instance, config)
     out += pin_conflicts(instance, config)
     out += unavailability_off_days(instance, config)
     if assignments is not None:
@@ -67,6 +73,51 @@ def presolve_checks(
 
 def has_errors(findings: Iterable[Finding]) -> bool:
     return any(f.severity == "error" for f in findings)
+
+
+# ----- missing data (SPEC §4 *Not checked*, §7 L1, D13) --------------------------------
+
+SECTION_ROOMS = ("rooms per section", ("rooms",))
+SECTION_PATTERNS = ("time patterns per section", ("time_patterns",))
+ROOM_SLOTS = ("room slot capacity", ("time_patterns", "rooms"))
+ALPHA = ("per-professor capacity alpha_p", ("time_patterns",))
+GROUPS = ("conflict-group capacity", ("time_patterns",))
+FAMILIES = ("day-family capacity", ("time_patterns", "rooms"))
+L1_CHECKS = (SECTION_ROOMS, SECTION_PATTERNS, ROOM_SLOTS, ALPHA, GROUPS, FAMILIES)
+"""L1 checks that need tables beyond Stage A's, with the tables they need."""
+
+
+def _has(instance: Instance, check: tuple[str, tuple[str, ...]]) -> bool:
+    return not instance.missing(check[1])
+
+
+def not_checked(instance: Instance, config: Config) -> list[Finding]:
+    """One ``not_checked`` warning per constraint part and per L1 check that cannot run
+    because an input table is absent (SPEC §4, D13). Constraints set to ``off`` are not listed."""
+    out = [
+        Finding("warning", "not_checked", str(nc), (nc.cid, *nc.missing))
+        for nc in stage_a_not_checked(instance, config)
+    ]
+    for name, tables in L1_CHECKS:
+        if missing := instance.missing(tables):
+            out.append(
+                Finding(
+                    "warning",
+                    "not_checked",
+                    f"L1 {name}: not checked (no {', '.join(missing)} table)",
+                    ("L1", *missing),
+                )
+            )
+    if instance.stage_b_missing:
+        out.append(
+            Finding(
+                "warning",
+                "stage_b_no_data",
+                f"Stage B cannot run: no {', '.join(instance.stage_b_missing)} table",
+                instance.stage_b_missing,
+            )
+        )
+    return out
 
 
 # ----- data integrity ----------------------------------------------------------------
@@ -101,15 +152,15 @@ def data_integrity(instance: Instance, config: Config) -> list[Finding]:
     for tp in instance.time_preferences:
         if tp.professor_id not in profs:
             unknown("professor", tp.professor_id, "time_preferences")
-        if tp.pattern_id not in pats:
+        if tp.pattern_id not in pats and instance.has_table("time_patterns"):
             unknown("time pattern", tp.pattern_id, "time_preferences")
     for u in instance.unavailability:
         if u.professor_id not in profs:
             unknown("professor", u.professor_id, "unavailability")
     for ra in instance.room_availability:
-        if ra.room_id not in instance.room_by_id:
+        if ra.room_id not in instance.room_by_id and instance.has_table("rooms"):
             unknown("room", ra.room_id, "room_availability")
-        if ra.pattern_id not in pats:
+        if ra.pattern_id not in pats and instance.has_table("time_patterns"):
             unknown("time pattern", ra.pattern_id, "room_availability")
     for g in instance.conflict_groups:
         for c in sorted(g.course_ids - courses):
@@ -323,7 +374,9 @@ def section_rooms(instance: Instance, config: Config) -> list[Finding]:
         if sig in checked:
             continue
         checked.add(sig)
-        if not any(room_problem(s, r) is None for r in instance.rooms):
+        if _has(instance, SECTION_ROOMS) and not any(
+            room_problem(s, r) is None for r in instance.rooms
+        ):
             out.append(
                 Finding(
                     "error",
@@ -333,7 +386,9 @@ def section_rooms(instance: Instance, config: Config) -> list[Finding]:
                     (s.course_id,),
                 )
             )
-        if not any(pattern_problem(instance, config, s, t) is None for t in usable):
+        if _has(instance, SECTION_PATTERNS) and not any(
+            pattern_problem(instance, config, s, t) is None for t in usable
+        ):
             out.append(
                 Finding(
                     "error",
@@ -416,7 +471,7 @@ def pre_assignment_caps(instance: Instance, config: Config) -> list[Finding]:
         units = sum(n * instance.offering_info[key].units for key, n in pre.items())
         if _hard_upper_load(config) and units > prof.load_max + 1e-9:
             add(pid, f"{units:g} units but the maximum load is {prof.load_max:g} (A2)")
-        if config.mode("A8") is Mode.HARD:
+        if config.mode("A8") is Mode.HARD and _has(instance, ALPHA):
             a = alpha(instance, config, pid)
             if sum(pre.values()) > a:
                 add(
@@ -534,7 +589,7 @@ def pin_conflicts(instance: Instance, config: Config) -> list[Finding]:
         if sec is None:
             out.append(Finding("error", "pin_unknown", f"pin {sid}: no such section", (sid,)))
             continue
-        if bpin.pattern_id is not None:
+        if bpin.pattern_id is not None and instance.has_table("time_patterns"):
             pat = instance.pattern_by_id.get(bpin.pattern_id)
             if pat is None:
                 out.append(
@@ -551,7 +606,7 @@ def pin_conflicts(instance: Instance, config: Config) -> list[Finding]:
                     problem = f"pattern {pat.id} intersects a blocked slot"
                 if problem:
                     out.append(Finding("error", "pin_infeasible", f"pin {sid}: {problem}", (sid,)))
-        if bpin.room_id is not None:
+        if bpin.room_id is not None and instance.has_table("rooms"):
             room = instance.room_by_id.get(bpin.room_id)
             if room is None:
                 out.append(

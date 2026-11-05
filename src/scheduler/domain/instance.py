@@ -36,6 +36,11 @@ from scheduler.domain.entities import (
 
 T = TypeVar("T")
 
+STAGE_A_TABLES: tuple[str, ...] = ("professors", "offerings")
+"""Tables Stage A cannot run without (SPEC §8, *Required tables per stage*, D13)."""
+STAGE_B_TABLES: tuple[str, ...] = (*STAGE_A_TABLES, "time_patterns", "rooms")
+"""Tables Stage B cannot run without (SPEC §8, D13)."""
+
 
 @dataclass(frozen=True)
 class OfferingInfo:
@@ -67,6 +72,8 @@ class Instance:
     stage_b_pins: tuple[StageBPin, ...] = ()
     section_links: tuple[SectionLink, ...] = ()
     room_availability: tuple[RoomAvailability, ...] = ()
+    missing_tables: frozenset[str] = frozenset()
+    """Input tables absent from the source (SPEC §8, D13); an empty table is present."""
     _memo: dict[Hashable, object] = field(default_factory=dict, repr=False)
 
     def memo(self, key: Hashable, factory: Callable[[], T]) -> T:
@@ -74,6 +81,19 @@ class Instance:
         if key not in self._memo:
             self._memo[key] = factory()
         return cast(T, self._memo[key])
+
+    def has_table(self, name: str) -> bool:
+        """Whether input table ``name`` was given (possibly empty)."""
+        return name not in self.missing_tables
+
+    def missing(self, names: tuple[str, ...]) -> tuple[str, ...]:
+        """The tables among ``names`` that are absent, in the given order."""
+        return tuple(n for n in names if not self.has_table(n))
+
+    @cached_property
+    def stage_b_missing(self) -> tuple[str, ...]:
+        """Stage B required tables that are absent (Stage B cannot run if non-empty)."""
+        return self.missing(STAGE_B_TABLES)
 
     # ----- lookups -------------------------------------------------------------
 

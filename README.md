@@ -44,10 +44,23 @@ number of different courses, maximum teaching days, whether they like several se
 the same course, whether they prefer classes back-to-back or spread out, and preferred
 weekday pattern (Mon/Wed/Fri or Tue/Thu).
 
-The Fall 2026 survey export can be converted into this format automatically. The converter
+The supervisor's spreadsheets (courses, professors, survey export, and rooms/times when
+available) can be converted into this format automatically. The converter
 also lists everything that needs a human decision (free-text comments, duplicate or
 unmatched survey answers) in `review.csv`. The old `MWForTR` column is ignored: the
 survey question on weekday patterns decides instead.
+
+The received files are never edited by hand. Small layout differences (the header row a
+little higher or lower, columns in another order, extra spaces) are handled automatically,
+but anything whose *meaning* is unclear stops the conversion with a message saying where.
+The fix is then written once in a short **fixes file**, for example "the courses file has
+one row per course" or "the unlabeled column AZ is MATH 818". Each fix is listed in
+`review.csv`, and a fix that no longer applies (because corrected files were sent) is
+reported, so it cannot silently do the wrong thing.
+
+**Only part of the data?** Without rooms and class times the tool still assigns professors
+(step 2) and stops there. The checks that need rooms or times are listed as
+*not checked* in `check.txt` and the report instead of being skipped silently.
 
 ---
 
@@ -184,6 +197,9 @@ After editing `runs/latest/assignments.csv`, rebuild only the timetable (into a 
 uv run scheduler run data/examples/tiny --assignments runs/latest/assignments.csv
 ```
 
+If the folder has no `rooms` or `time_patterns`, `run` stops after the professor
+assignment and says so (the report then has no timetable).
+
 To try different data, point at another folder. For example,
 `data/examples/medium_no_recitations` is the (anonymized) Fall 2026 data without recitations.
 To try different rules, copy `configs/default.yaml`, change it, and add `-c my_config.yaml`.
@@ -243,3 +259,29 @@ instance cannot be fully scheduled.
 
 `--anonymize` produces a shareable copy (that is how `data/examples/medium` was made).
 Mapping: SPEC §8.1.
+
+Spring 2027 (courses one row per course, an unlabeled MATH 818 survey column, no
+rooms/times yet). Keep each delivery in its own folder and the fixes next to them:
+
+```
+data/private/spring2027/
+  raw/2026-11-05/   the supervisor's files, untouched
+  fixes.yaml        declared corrections (SPEC §8.1.2)
+  instance/         converter output
+```
+
+```yaml
+# fixes.yaml
+courses_format: per_course                 # Section_number = number of sections
+survey_columns:
+  AZ: {question: Q1, course: "MATH 818"}   # column without a header in the export
+```
+
+```bash
+uv run scheduler convert-legacy data/private/spring2027/raw/2026-11-05 \
+  -o data/private/spring2027/instance --fixes data/private/spring2027/fixes.yaml
+uv run scheduler run data/private/spring2027/instance   # Stage A only: no rooms/times
+```
+
+When corrected files arrive, put them in a new `raw/<date>/` folder and convert again with
+the same fixes; the converter says which fixes are no longer needed.

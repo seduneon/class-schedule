@@ -188,3 +188,31 @@ def test_pre_assignment_against_hard_a5_a6_a8() -> None:
         f.code == "pre_exceeds_caps"
         for f in presolve_checks(inst, Config().with_mode("A8", "soft"))
     )
+
+
+def test_missing_stage_b_tables_are_not_checked_not_errors() -> None:
+    # SPEC §4 *Not checked*, D13: no rooms/time_patterns -> no no_room/alpha/group errors,
+    # one not_checked warning per skipped part, and the time preference is not an unknown ID.
+    inst = instance(
+        professors=[prof("P", 2, 2)],
+        offerings=[offering("M301", level=300), offering("M302", level=300)],
+        rooms=[],
+        patterns=[],
+        course_preferences=[CoursePreference("P", "M301", 1), CoursePreference("P", "M302", 2)],
+        time_preferences=[TimePreference("P", "MWF0900", 1)],
+        missing_tables=frozenset({"rooms", "time_patterns"}),
+    )
+    findings = presolve_checks(inst, Config())
+    assert not has_errors(findings), findings
+    messages = [f.message for f in findings if f.code == "not_checked"]
+    assert "A8 per-professor capacity alpha_p: not checked (no time_patterns table)" in messages
+    assert "L1 rooms per section: not checked (no rooms table)" in messages
+    assert "L1 room slot capacity: not checked (no time_patterns, rooms table)" in messages
+    assert len(messages) == 3 + 6
+    assert {f.code for f in findings} == {"not_checked", "stage_b_no_data"}
+
+
+def test_present_but_empty_tables_are_still_checked() -> None:
+    inst = instance(professors=[prof("P", 1, 1)], offerings=[offering("M1")], rooms=[])
+    codes = _codes(inst)
+    assert "no_room" in codes and "not_checked" not in codes

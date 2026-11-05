@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from scheduler.domain import Assignment, Instance, Solution, label_sort_key
+from scheduler.domain import STAGE_B_TABLES, Assignment, Instance, Solution, label_sort_key
 from scheduler.time import format_clock
 
 ASSIGNMENT_COLUMNS = (
@@ -220,10 +220,12 @@ def _pattern_record(instance: Instance, pid: str) -> dict[str, object]:
 
 
 def write_instance(instance: Instance, folder: Path | str) -> Path:
-    """Write an instance as a folder of CSV files."""
+    """Write an instance as a folder of CSV files (absent tables stay absent, SPEC D13)."""
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
     for name, records in instance_tables(instance).items():
-        if records or name in ("professors", "offerings", "rooms", "time_patterns"):
+        if not instance.has_table(name):
+            continue
+        if records or name in STAGE_B_TABLES:
             pd.DataFrame(records).to_csv(folder / f"{name}.csv", index=False)
     return folder
