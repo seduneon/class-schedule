@@ -155,8 +155,9 @@ timetable and lists exactly which sections are left uncovered.
 ## 4. Outputs
 
 Each run creates its own folder, named by date and time, e.g.
-`runs/2026-10-19_15-40-52_fall2026_no_recitations/`. Old results are never overwritten, and
-`runs/latest` always points to the newest one.
+`runs/2026-10-19_15-40-52_tiny/`. Old results are never overwritten, and
+`runs/latest` always points to the newest one. Runs on real data go next to that data instead
+(`--runs-dir data/private/<term>/runs`, see below).
 
 | File | What it is |
 |---|---|
@@ -212,7 +213,25 @@ Example data:
 | `data/examples/medium` | Fall 2026, anonymized: 26 professors, 74 sections, 5 rooms |
 | `data/examples/medium_no_recitations` | The same without the 26 recitation sections |
 
-Real data with names stays in `data/private/` and is never shared or committed.
+Real data with names stays in `data/private/` and is never shared or committed. One folder per
+term:
+
+```
+data/private/
+  <term>/                      e.g. fall2026, spring2027
+    raw/<YYYY-MM-DD>/          the supervisor's files exactly as received; never edited
+    fixes.yaml                 declared corrections (SPEC §8.1.2)
+    instance/                  converter output (variants: instance_<name>/)
+    runs/                      results: --runs-dir data/private/<term>/runs
+    experiments/<name>/        what-if copies with their own fixes.yaml, instance/, runs/
+    deliveries/<YYYY-MM-DD>/   exactly what was prepared for the supervisor that day
+    verify/                    independent check scripts
+    VERIFICATION_<date>.md
+  reference/                   past-capstone material (source of requirements only)
+```
+
+Nothing else goes at the repository root: new files from the supervisor go straight into
+`data/private/<term>/raw/<date>/`. Excel, zip and PDF files are git-ignored everywhere.
 
 ---
 
@@ -244,10 +263,12 @@ Experiments for the report: `uv run python experiments/run_all.py [--quick]` →
 Converting the Fall 2026 survey files (lectures only; recitations are not scheduled):
 
 ```bash
-uv run scheduler convert-legacy refall2026mathcourselist -o data/private/fall2026_no_recitations
+uv run scheduler convert-legacy data/private/fall2026/raw/2026-10-18 \
+  -o data/private/fall2026/instance_no_recitations
 # remove the section_type = R rows from course_preferences.csv (see below),
-# read data/private/fall2026_no_recitations/review.csv, then:
-uv run scheduler check data/private/fall2026_no_recitations
+# read data/private/fall2026/instance_no_recitations/review.csv, then:
+uv run scheduler check data/private/fall2026/instance_no_recitations
+uv run scheduler run data/private/fall2026/instance_no_recitations --runs-dir data/private/fall2026/runs
 ```
 
 The survey also ranks recitations, so the converter writes `section_type = R` rows to
@@ -261,14 +282,7 @@ instance cannot be fully scheduled.
 Mapping: SPEC §8.1.
 
 Spring 2027 (courses one row per course, an unlabeled MATH 818 survey column, no
-rooms/times yet). Keep each delivery in its own folder and the fixes next to them:
-
-```
-data/private/spring2027/
-  raw/2026-11-05/   the supervisor's files, untouched
-  fixes.yaml        declared corrections (SPEC §8.1.2)
-  instance/         converter output
-```
+rooms/times yet), in the layout above:
 
 ```yaml
 # fixes.yaml
@@ -280,7 +294,8 @@ survey_columns:
 ```bash
 uv run scheduler convert-legacy data/private/spring2027/raw/2026-11-05 \
   -o data/private/spring2027/instance --fixes data/private/spring2027/fixes.yaml
-uv run scheduler run data/private/spring2027/instance   # Stage A only: no rooms/times
+uv run scheduler run data/private/spring2027/instance \
+  --runs-dir data/private/spring2027/runs               # Stage A only: no rooms/times
 ```
 
 When corrected files arrive, put them in a new `raw/<date>/` folder and convert again with

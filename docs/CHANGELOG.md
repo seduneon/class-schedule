@@ -134,3 +134,9 @@ The supervisor's Spring 2027 files differ from the Fall ones: `courses.xlsx` has
 ## Result line names parts not checked (2026-11-05, SPEC §4, L9)
 The Spring 2027 Stage A run ended with "Result: no hard violations." while all three A8 parts were not checked; with survey time patterns (`time_patterns_from_survey: true`) the same assignment broke A8 day-family conflict-group capacity (7 level-400 courses on TR-only professors, 6 TR patterns).
 - `run`'s final line now says the count covers only the checked rules and names every part not checked, e.g. `Result: no hard violations among checked rules; not checked: A8 day-family room capacity kappa_f (no rooms table).`, shown in yellow. With nothing unchecked it is unchanged.
+
+## Repository layout (2026-11-06, SPEC §10)
+- SPEC §10 tree updated to what is tracked (`.github/`, `data/examples/medium_no_recitations/`, `tests/test_architecture.py`) and now defines the git-ignored real-data layout: `data/private/<term>/{raw/<date>/, fixes.yaml, instance/, runs/, experiments/<name>/, deliveries/<date>/, verify/}` and `data/private/reference/`. Real-data runs use `--runs-dir data/private/<term>/runs`.
+- New `tests/test_repo_layout.py`: tracked files stay inside the tree, only `data/examples/` is tracked under `data/`, and no `.xlsx`/`.xls`/`.zip`/`.pdf` is tracked. `.gitignore` ignores those types everywhere.
+- `docs/PENDING_DECISIONS.md` removed: every item was resolved on 2026-10-21 and is recorded in SPEC §14 (D6–D10).
+- README and CLAUDE.md describe the layout; README commands use the new paths.

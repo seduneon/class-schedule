@@ -9,9 +9,16 @@ dist/
 build/
 *.egg-info/
 .DS_Store
+
+# Real data (SPEC §10): everything with names lives in data/private/<term>/ or data/private/reference/.
 data/private/
-refall2026mathcourselist/
-2026spring 3 past capstone/
+# Supervisor files and archives are never tracked, wherever they are dropped.
+*.xlsx
+*.xls
+*.zip
+*.pdf
+
+# Generated outputs
+runs/
 out/
 experiments/results/
-runs/

@@ -24,6 +24,19 @@ uv run scheduler --help          # CLI
 
 Python 3.12, uv, PuLP (CBC default, HiGHS optional), pydantic v2, pandas (io/reporting only), openpyxl, typer, pytest, hypothesis.
 
+## Repository layout
+
+SPEC §10 is the tree. Keep it; `tests/test_repo_layout.py` enforces the tracked part.
+- Nothing new at the repository root. A new top-level entry needs a SPEC §10 change first.
+- Real data (supervisor files, anything with names, past-capstone material) lives only in `data/private/`, never at the root or in `docs/`:
+  - `data/private/<term>/raw/<YYYY-MM-DD>/` the supervisor's files as received, never edited; `fixes.yaml` next to `raw/`
+  - `instance/` converter output; `runs/` results (always pass `--runs-dir data/private/<term>/runs`, never the root `runs/`)
+  - `experiments/<name>/` what-if copies with their own fixes, instance and runs; never overwrite the term's `instance/` or `runs/` for an experiment
+  - `deliveries/<YYYY-MM-DD>/` what was prepared for the supervisor; `verify/` and `VERIFICATION_<date>.md` for independent checks
+  - `data/private/reference/` past-capstone material (requirements source only)
+- When a file lands somewhere else (e.g. a supervisor folder dropped at the root), move it into this layout, delete duplicates only after a byte compare, and say what moved.
+- The root `runs/` is for example data only. `experiments/results/` is generated output. Both are git-ignored, as are `*.xlsx`, `*.xls`, `*.zip`, `*.pdf` everywhere.
+
 ## Rules
 
 - **Constraint changes follow SPEC §11 exactly:** spec → validator check + tests → ablation pair test → builder → config → status/CHANGELOG.

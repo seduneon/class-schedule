@@ -497,7 +497,7 @@ Unknown keys are an error. Unknown constraint IDs are an error.
 ## 10. Architecture
 
 ```
-class-scheduler/
+class-schedule/
 ├── CLAUDE.md
 ├── README.md
 ├── pyproject.toml              # uv; ruff; mypy (strict); pytest
@@ -506,11 +506,13 @@ class-scheduler/
 │   ├── SPEC.md                 # this file
 │   ├── CHANGELOG.md
 │   └── report_notes.md         # experiment results for the capstone write-up
+├── .github/workflows/ci.yml
 ├── data/
 │   ├── examples/tiny/          # hand-checkable instance (3 profs, 4 sections)
-│   ├── examples/medium/        # anonymized realistic instance
-│   └── private/                # real data — git-ignored
-├── runs/                       # L9 run folders — git-ignored
+│   ├── examples/medium/        # anonymized realistic instance (Fall 2026)
+│   ├── examples/medium_no_recitations/
+│   └── private/                # real data — git-ignored; layout below
+├── runs/                       # L9 run folders for example data — git-ignored
 ├── src/scheduler/
 │   ├── domain/                 # frozen dataclasses: Professor, Offering, Section, Room, TimePattern, Meeting, Instance, Assignment, Solution
 │   ├── io/                     # readers (csv/xlsx → domain), schemas (pydantic), writers, legacy converter, run folders (L9)
@@ -533,13 +535,35 @@ class-scheduler/
 │   ├── generate/               # L8 synthetic instances
 │   ├── pipeline.py             # run_stage_a / run_stage_b / run_integrated — library entry points
 │   └── cli.py                  # typer: check, run, assign, timetable, validate, alternatives, repair, report, generate, experiment
-├── experiments/                # scripted, reproducible experiment runs; write CSV + plots
+├── experiments/                # scripted, reproducible experiment runs; results/ git-ignored
 └── tests/
     ├── unit/                   # domain, io, time, preferences, each constraint
     ├── integration/            # full pipeline on examples
     ├── property/               # hypothesis over generated instances
+    ├── test_architecture.py    # import rules (validation without pulp, model without pandas)
+    ├── test_repo_layout.py     # tracked files stay inside this tree; no real data tracked
     └── test_spec_sync.py
 ```
+
+Nothing else lives at the repository root. Supervisor files, past-capstone material and any file with real names go under `data/private/`, never elsewhere in the checkout. `tests/test_repo_layout.py` fails if a tracked file falls outside this tree or has a real-data extension (`.xlsx`, `.xls`, `.zip`, `.pdf`).
+
+**Real data layout (`data/private/`, git-ignored).** One folder per term; the converter and every command take these paths explicitly:
+
+```
+data/private/
+├── <term>/                     # e.g. fall2026, spring2027
+│   ├── raw/<YYYY-MM-DD>/       # the supervisor's files exactly as received; never edited (§8.1)
+│   ├── fixes.yaml              # declared corrections (§8.1.2)
+│   ├── instance/               # converter output (variants: instance_<name>/)
+│   ├── runs/                   # run folders: `--runs-dir data/private/<term>/runs`
+│   ├── experiments/<name>/     # what-if copies, each with its own fixes.yaml, instance/, runs/
+│   ├── deliveries/<YYYY-MM-DD>/  # exactly what was prepared for the supervisor that day
+│   ├── verify/                 # independent check scripts for this term's data
+│   └── VERIFICATION_<YYYY-MM-DD>.md
+└── reference/                  # source material only (e.g. capstone_2025/); never imported or ported (CLAUDE.md)
+```
+
+Real-data runs never go to the root `runs/`, so a term's results stay together with the data and fixes that produced them.
 
 ### Key interfaces
 
