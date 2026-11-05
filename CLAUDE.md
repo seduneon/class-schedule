@@ -37,6 +37,17 @@ SPEC §10 is the tree. Keep it; `tests/test_repo_layout.py` enforces the tracked
 - When a file lands somewhere else (e.g. a supervisor folder dropped at the root), move it into this layout, delete duplicates only after a byte compare, and say what moved.
 - The root `runs/` is for example data only. `experiments/results/` is generated output. Both are git-ignored, as are `*.xlsx`, `*.xls`, `*.zip`, `*.pdf` everywhere.
 
+## Before anything goes to the supervisor (SPEC §8.1.3)
+
+A result is not ready until it has been checked against the supervisor's Excel files by scripts that never import `scheduler`. Every time, in order:
+1. Run on clean, committed `main` (`run.json` must show `git_dirty: false`), with `--runs-dir data/private/<term>/runs`.
+2. If `time_room.xlsx` is missing, set `time_patterns_from_survey: true` so the day-family rule (A8) is checked; say in the e-mail that times come from the survey.
+3. `uv run python -I data/private/<term>/verify/verify_all.py RAW INSTANCE RUN` must print `ALL CHECKS PASSED` (V1 conversion, V2 hard rules incl. A8, V3 report.xlsx, V4 provenance). If the survey layout changed, update the scripts first; never weaken a check to make it pass.
+4. Read the run's final `Result:` line: every part listed as not checked goes into the e-mail as a caveat.
+5. Write `VERIFICATION_<date>.md` (passed / not checked / open questions) and copy exactly what is sent into `deliveries/<date>/`.
+
+Never send, and never call a result verified, if a step was skipped. Say which one.
+
 ## Rules
 
 - **Constraint changes follow SPEC §11 exactly:** spec → validator check + tests → ablation pair test → builder → config → status/CHANGELOG.

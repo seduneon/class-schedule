@@ -300,3 +300,11 @@ uv run scheduler run data/private/spring2027/instance \
 
 When corrected files arrive, put them in a new `raw/<date>/` folder and convert again with
 the same fixes; the converter says which fixes are no longer needed.
+
+Before sending anything to the supervisor, check the result against the Excel files with the
+term's independent scripts (SPEC §8.1.3), and record the outcome in `VERIFICATION_<date>.md`:
+
+```bash
+D=data/private/spring2027
+uv run python -I $D/verify/verify_all.py $D/raw/2026-11-05 $D/instance $D/runs/latest
+```

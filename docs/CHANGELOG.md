@@ -140,3 +140,8 @@ The Spring 2027 Stage A run ended with "Result: no hard violations." while all t
 - New `tests/test_repo_layout.py`: tracked files stay inside the tree, only `data/examples/` is tracked under `data/`, and no `.xlsx`/`.xls`/`.zip`/`.pdf` is tracked. `.gitignore` ignores those types everywhere.
 - `docs/PENDING_DECISIONS.md` removed: every item was resolved on 2026-10-21 and is recorded in SPEC §14 (D6–D10).
 - README and CLAUDE.md describe the layout; README commands use the new paths.
+
+## Delivery verification (2026-11-06, SPEC §8.1.3, D15)
+- New SPEC §8.1.3 and D15: before anything goes to the supervisor, independent scripts (never importing `scheduler`, re-reading the raw Excel) run V1 conversion, V2 hard rules incl. A8 per professor and A8 conflict groups, V3 `report.xlsx` vs `assignments.csv`, V4 `run.json` provenance; the outcome goes to `VERIFICATION_<date>.md`, what is sent to `deliveries/<date>/`. Not-checked parts are never reported as passed.
+- CLAUDE.md: the delivery checklist (clean main, survey time patterns when `time_room.xlsx` is missing, `verify_all.py`, read the `Result:` line, record and archive). README: the command.
+- Why: the first Spring 2027 result broke A8 (7 level-400 courses on TR-only professors, 6 TR slots) and nobody noticed, because the time checks were skipped and the independent scripts covered A1–A4 only. The scripts themselves are term-specific and live in `data/private/<term>/verify/`.

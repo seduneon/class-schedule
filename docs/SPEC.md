@@ -443,6 +443,19 @@ Rules:
 - A fix that no longer applies is an error, not a no-op: an alias whose raw code appears nowhere, a `survey_columns` entry whose column now has a header, `time_patterns_from_survey` while `time_room.xlsx` exists. This catches stale fixes when the supervisor resends corrected files.
 - Fixes declare meaning only; they never change values the supervisor sent (ranks, loads, capacities). A data value that looks wrong goes to `review.csv` and back to the supervisor.
 
+#### 8.1.3 Delivery verification (D15)
+
+Nothing goes to the supervisor until an independent check has compared the result with the supervisor's own files. *Independent* means the check scripts never import `scheduler` and re-read the raw Excel files themselves, so a bug in the converter or the model cannot hide in both. They live in `data/private/<term>/verify/` (they hard-code that term's survey layout), and `verify_all.py RAW INSTANCE RUN` runs all of them and exits non-zero on any failure.
+
+| # | Check | Compares |
+|---|---|---|
+| V1 | Conversion | raw Excel → `instance/*.csv`: offerings (sections, capacities, units), professors (loads, priority), pre-assignments, every course and time rank, Q2/Q3/Q6 attributes, comments; time patterns re-derived from the survey's slot labels (days, start, end) when `time_patterns_from_survey` is set |
+| V2 | Hard rules | `assignments.csv` → instance: A1 coverage and unique labels, A2 max load, A3 eligibility, A4 pre-assignments; with `time_patterns`, A8 per professor (day-family rule) and A8 conflict groups (level groups, B13 hard), with $\alpha$ recomputed from the pattern times |
+| V3 | Report | `report.xlsx` (what the supervisor reads) → `assignments.csv`: same assignment rows; every A2 underload in the violations sheet; every not-checked part listed in the diagnostics sheet |
+| V4 | Provenance | `run.json`: `status = ok`, `git_dirty = false`, `instance_sha256` matches the instance folder, Stage A optimal |
+
+Then: write the outcome to `data/private/<term>/VERIFICATION_<date>.md` (what passed, what is not checked and why, open questions for the supervisor), and copy exactly what is sent to `deliveries/<date>/`. A check that cannot run (missing table) is reported as *not checked*, never as passed. Results the checks cannot judge (fairness of the underload split, comment-only constraints) are listed as open questions, not fixed silently.
+
 ---
 
 ## 9. Configuration
@@ -656,6 +669,7 @@ Record the decision and date here when settled; update the affected sections.
 | D12 | How does the converter handle format changes in the supervisor's files (Spring 2027: courses one row per course; survey header one row higher; an unlabeled MATH 818 column)? | 2026-11-05, user: raw files are never edited. Layout differences are tolerated only from the closed list in §8.1.1; meaning is declared in a fixes file (§8.1.2), each fix logged in `review.csv`, stale fixes are errors. `MATH 818` stays `MATH818` (supervisor) |
 | D13 | Can Stage A run without Stage B data (Spring 2027: no `time_room`)? | 2026-11-05, user: yes. Required tables per stage (§8); constraint parts without inputs are *not checked* and reported, never silently skipped (§4); A8 splits by input (§5.2); `run` stops after Stage A (L9) |
 | D14 | Course ID of a slash cross-listing (`MATH 702/682`) | 2026-11-05, user (approved with the D12/D13 draft): first code (`MATH702`), full code kept in the title; override per course with `course_aliases`. The `(…)` form keeps its old title |
+| D15 | How is a result checked before it goes to the supervisor? | 2026-11-06, user: by independent scripts against the raw Excel files (§8.1.3, V1–V4), recorded in `VERIFICATION_<date>.md`; the first Spring 2027 result broke A8 unnoticed: the time checks were skipped and the independent scripts covered only A1–A4 |
 
 ---
 
