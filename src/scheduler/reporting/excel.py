@@ -9,8 +9,8 @@ from typing import Any
 import pandas as pd
 
 from scheduler.config import Config
-from scheduler.derived import conflict_groups
-from scheduler.diagnostics.postsolve import SlackReport
+from scheduler.derived import conflict_groups, stage_a_offering_keys
+from scheduler.diagnostics.postsolve import SlackReport, explain_uncovered
 from scheduler.diagnostics.presolve import Finding
 from scheduler.domain import Instance, Solution, label_sort_key
 from scheduler.io.writers import assignment_records
@@ -44,6 +44,45 @@ def timetable_rows(instance: Instance, solution: Solution) -> list[dict[str, Any
     return rows
 
 
+UNASSIGNED_COLUMNS = [
+    "course_id",
+    "title",
+    "section_type",
+    "section_label",
+    "capacity",
+    "units",
+    "reason",
+]
+
+
+def unassigned_section_rows(
+    instance: Instance, solution: Solution, config: Config
+) -> list[dict[str, Any]]:
+    """One row per section of a Stage A offering with no professor (A1 slack a_{c,k} > 0)."""
+    assigned = {a.section_key for a in solution.assignments}
+    rows: list[dict[str, Any]] = []
+    for key in stage_a_offering_keys(instance, config):
+        sections = instance.sections_by_offering.get(key, ())
+        missing = [s for s in sections if s.key not in assigned]
+        if not missing:
+            continue
+        why = explain_uncovered(instance, config, key[0], key[1], solution.assignments)
+        title = instance.offering_info[key].title
+        rows += [
+            {
+                "course_id": s.course_id,
+                "title": title,
+                "section_type": s.section_type.value,
+                "section_label": s.label,
+                "capacity": s.capacity,
+                "units": s.units,
+                "reason": why,
+            }
+            for s in missing
+        ]
+    return rows
+
+
 def _sorted_frame(rows: list[dict[str, Any]], keys: list[str], columns: list[str]) -> pd.DataFrame:
     frame = pd.DataFrame(rows, columns=columns)
     if frame.empty:
@@ -63,8 +102,8 @@ def write_excel_report(
     findings: Sequence[Finding] = (),
     stats: dict[str, Any] | None = None,
 ) -> Path:
-    """Workbook: timetables per professor / room / conflict group, assignments, satisfaction,
-    violations and slacks, diagnostics and solver statistics."""
+    """Workbook: timetables per professor / room / conflict group, assignments, unassigned
+    sections, satisfaction, violations and slacks, diagnostics and solver statistics."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     tt = timetable_rows(instance, solution)
@@ -87,6 +126,9 @@ def write_excel_report(
             group_rows, ["group_id", "pattern_id"], ["group_id", *cols]
         )
     sheets["assignments"] = pd.DataFrame(assignment_records(solution.assignments))
+    sheets["unassigned_sections"] = pd.DataFrame(
+        unassigned_section_rows(instance, solution, config), columns=UNASSIGNED_COLUMNS
+    )
     sheets["satisfaction"] = pd.DataFrame(
         [
             {

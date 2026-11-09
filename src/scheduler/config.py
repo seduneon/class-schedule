@@ -104,7 +104,7 @@ CONSTRAINT_INDEX: tuple[ConstraintSpec, ...] = tuple(
         ("A7", "Lecture–recitation staffing", "should", "off"),
         ("A8", "Timetable capacity pre-check", "should", "hard"),
         ("A9", "Course satisfaction fairness", "should", "soft"),
-        ("A10", "Top-k course preference", "should", "soft"),
+        ("A10", "Top-k course preference", "must", "hard"),
         ("B1", "Section scheduled once", "must", "hard"),
         ("B2", "No room overlap", "must", "hard"),
         ("B3", "No professor overlap", "must", "hard"),

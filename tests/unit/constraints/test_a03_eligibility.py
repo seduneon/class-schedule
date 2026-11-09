@@ -5,7 +5,7 @@ from __future__ import annotations
 from scheduler.config import Config
 from scheduler.domain import CoursePreference, Instance, PreAssignment, SectionType, Solution
 from scheduler.validation import validate
-from tests.factory import asg, instance, offering, prof
+from tests.factory import asg, fast_config, instance, offering, prof
 
 
 def _inst(**kw: object) -> Instance:
@@ -50,7 +50,8 @@ def test_a3_ablation_pair() -> None:
         offerings=[offering("M101"), offering("M102")],
         course_preferences=[CoursePreference("P", "M101", None), CoursePreference("P", "M102", 1)],
     )
-    off, on = ablation_a(inst, "A3")
+    # A10 off: a hard top-k filter would also remove "cannot" and hide A3.
+    off, on = ablation_a(inst, "A3", cfg=fast_config(constraints={"A10": {"mode": "off"}}))
     assert off == ["P teaches M101 L: marked cannot teach"]
     assert on == []
 
@@ -79,6 +80,6 @@ def test_a3_typed_rank_overrides_course_rank() -> None:
 def test_a3_typed_ablation_pair() -> None:
     from tests.factory import ablation_a
 
-    off, on = ablation_a(_typed(), "A3")
+    off, on = ablation_a(_typed(), "A3", cfg=fast_config(constraints={"A10": {"mode": "off"}}))
     assert off == ["P teaches M101 R: marked cannot teach"]
     assert on == []

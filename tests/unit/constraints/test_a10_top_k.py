@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import pandas as pd
 import pytest
 
-from scheduler.config import Config
+from scheduler.config import Config, Mode
 from scheduler.domain import CoursePreference, Instance, PreAssignment, SectionType, Solution
 from scheduler.preferences import top_k_distance
+from scheduler.reporting.excel import write_excel_report
 from scheduler.validation import validate
 from tests.factory import ablation_a, asg, fast_config, instance, offering, prof
 
@@ -77,6 +81,59 @@ def test_a10_ablation_pair(on_mode: str) -> None:
     off, on = ablation_a(_binding(), "A10", on_mode=on_mode, cfg=cfg)
     assert off == ["P teaches M2 L: rank 3 is outside the top 2"]
     assert on == []
+
+
+def _nobody_in_top_k() -> Instance:
+    """M1 has a free taker only outside the top 2; M2 is P's rank 1; M3 needs P too (full)."""
+    return instance(
+        professors=[prof("P", 1, 1), prof("Q", 0, 3)],
+        offerings=[offering("M1"), offering("M2"), offering("M3", n=2, cap=40)],
+        course_preferences=[
+            CoursePreference("P", "M2", 1),
+            CoursePreference("P", "M3", 2),
+            CoursePreference("Q", "Z1", 1),
+            CoursePreference("Q", "Z2", 2),
+            CoursePreference("Q", "M1", 3),
+            CoursePreference("Q", "M3", 4),
+        ],
+    )
+
+
+def test_a10_is_hard_by_default() -> None:
+    assert Config().mode("A10") is Mode.HARD
+
+
+def test_a10_hard_leaves_section_unassigned_and_report_names_it(tmp_path: Path) -> None:
+    """D8: better unassigned than outside the top K."""
+    from scheduler.pipeline import run_stage_a
+
+    inst = _nobody_in_top_k()
+    cfg = fast_config(constraints={"A10": {"mode": "hard", "max_rank": 2}})
+    result = run_stage_a(inst, cfg, presolve=False)
+    assert result.solution is not None
+    assert validate(inst, result.solution, cfg, ids=["A10"]) == []
+    assert sorted(a.course_id for a in result.solution.assignments) == ["M2"]
+
+    path = write_excel_report(tmp_path / "report.xlsx", inst, result.solution, cfg)
+    sheet = pd.read_excel(path, sheet_name="unassigned_sections")
+    got = [(r.course_id, r.section_label, r.reason) for r in sheet.itertuples()]
+    assert got == [
+        ("M1", "1L", "no professor has it in their top 2"),
+        ("M3", "1L", "eligible professors all at max load: P (1/1)"),
+        ("M3", "2L", "eligible professors all at max load: P (1/1)"),
+    ]
+    assert list(sheet["title"]) == ["M1", "M3", "M3"]
+    assert list(sheet["capacity"]) == [30, 40, 40]
+
+
+def test_a10_report_sheet_is_empty_when_all_assigned(tmp_path: Path) -> None:
+    inst = _inst()
+    sol = Solution(
+        (asg(inst, "P", "M1", "1L"), asg(inst, "P", "M2", "1L"), asg(inst, "P", "M3", "1L"))
+    )
+    path = write_excel_report(tmp_path / "report.xlsx", inst, sol, _cfg(5))
+    sheet = pd.read_excel(path, sheet_name="unassigned_sections")
+    assert sheet.empty and "reason" in sheet.columns
 
 
 def test_a10_distance_past_k() -> None:

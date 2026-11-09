@@ -109,7 +109,7 @@ The test `tests/test_spec_sync.py` parses this table: every `implemented` row mu
 | A7 | Lecture–recitation staffing | A | should | off | implemented |
 | A8 | Timetable capacity pre-check | A | should | hard | implemented |
 | A9 | Course satisfaction fairness | A | should | soft | implemented |
-| A10 | Top-k course preference | A | should | soft | implemented |
+| A10 | Top-k course preference | A | must | hard | implemented |
 | B1 | Section scheduled once | B | must | hard* | implemented |
 | B2 | No room overlap | B | must | hard | implemented |
 | B3 | No professor overlap | B | must | hard | implemented |
@@ -195,12 +195,12 @@ Add $m^C \le \text{sat}^C_p\ \forall p$ (professors with load > 0) and reward $\
 
 **A10 — Top-k course preference**
 The survey tells professors that most assignments fall within their top 5 courses. Let $K$ = `max_rank` (A10 setting, default 5). A triple $(p,c,k)$ is *outside the top $K$* if its rank $\rho^C_{p,c,k}$ (§3.4) is greater than $K$, `cannot`, or unranked. A pre-assignment or pin of $(p,c,k)$ exempts it, as for A3.
-- `hard`: no variable $n_{p,c,k}$ exists for a triple outside the top $K$ (filtered when variables are created).
+- `hard` (default, D8): no variable $n_{p,c,k}$ exists for a triple outside the top $K$ (filtered when variables are created). A section nobody can take within their top $K$ stays uncovered: A1's slack $a_{c,k}$ counts it, it is an A1 error in the validator, and the report names it in the `unassigned_sections` sheet (L6). Leaving a section unassigned is preferred to assigning it outside the top $K$.
 - `soft`: each section taught outside the top $K$ is a slack $e_{p,c,k} \ge n_{p,c,k}$, penalized at level 2 with weight × $d_{p,c,k}$, where the distance past $K$ is
   $d_{p,c,k} = \dfrac{\rho^C_{p,c,k} - K}{m_p - K}$ for a ranked $\rho^C_{p,c,k} > K$, and $d_{p,c,k} = 1$ if `cannot` or unranked.
   $m_p$ is the professor's $m$ from §3.4 (at least the largest rank), so $0 < d \le 1$: rank $K+1$ costs little, the professor's last rank costs as much as an unranked course.
 
-Because $d \le 1$, a section outside the top $K$ never costs more than one unit of A2 underload (weight 10), so coverage (level 1) and load (A2) still come first. Two sections just past $K$ can cost less than one far down the list. The validator reports the number of sections, with the rank in the message.
+In `soft` mode, because $d \le 1$, a section outside the top $K$ never costs more than one unit of A2 underload (weight 10), so coverage (level 1) and load (A2) still come first. Two sections just past $K$ can cost less than one far down the list. The validator reports the number of sections, with the rank in the message.
 
 ### 5.3 Objective (lexicographic)
 
@@ -333,7 +333,7 @@ Input: previous solution + changed instance. An extra objective level is inserte
 - Stage A: changes in $z$.
 
 **L6 — Reporting (must)**
-- Excel workbook: timetable per professor, per room, per conflict group; assignment list; satisfaction table (rank received vs best possible per professor); violations and slacks; solver stats.
+- Excel workbook: timetable per professor, per room, per conflict group; assignment list; `unassigned_sections` (one row per section of a Stage A offering with no professor: course, title, type, label, capacity, units, reason; present and empty when every section is assigned); satisfaction table (rank received vs best possible per professor); violations and slacks; solver stats.
 - Static HTML weekly grid for quick viewing.
 - JSON solution file: the canonical machine format, used by `validate`, repair and experiments.
 
@@ -450,8 +450,8 @@ Nothing goes to the supervisor until an independent check has compared the resul
 | # | Check | Compares |
 |---|---|---|
 | V1 | Conversion | raw Excel → `instance/*.csv`: offerings (sections, capacities, units), professors (loads, priority), pre-assignments, every course and time rank, Q2/Q3/Q6 attributes, comments; time patterns re-derived from the survey's slot labels (days, start, end) when `time_patterns_from_survey` is set |
-| V2 | Hard rules | `assignments.csv` → instance: A1 coverage and unique labels, A2 max load, A3 eligibility, A4 pre-assignments; with `time_patterns`, A8 per professor (day-family rule) and A8 conflict groups (level groups, B13 hard), with $\alpha$ recomputed from the pattern times |
-| V3 | Report | `report.xlsx` (what the supervisor reads) → `assignments.csv`: same assignment rows; every A2 underload in the violations sheet; every not-checked part listed in the diagnostics sheet |
+| V2 | Hard rules | `assignments.csv` → instance: A1 coverage (no section assigned twice; a section may stay unassigned only if no professor with spare load has it in their top $K$ or A8 blocks them) and unique labels, A2 max load, A3 eligibility, A4 pre-assignments, A10 top $K$; with `time_patterns`, A8 per professor (day-family rule) and A8 conflict groups (level groups, B13 hard), with $\alpha$ recomputed from the pattern times |
+| V3 | Report | `report.xlsx` (what the supervisor reads) → `assignments.csv`: same assignment rows; `unassigned_sections` lists exactly the sections missing from `assignments.csv`; every A2 underload in the violations sheet; every not-checked part listed in the diagnostics sheet |
 | V4 | Provenance | `run.json`: `status = ok`, `git_dirty = false`, `instance_sha256` matches the instance folder, Stage A optimal |
 
 Then: write the outcome to `data/private/<term>/VERIFICATION_<date>.md` (what passed, what is not checked and why, open questions for the supervisor), and copy exactly what is sent to `deliveries/<date>/`. A check that cannot run (missing table) is reported as *not checked*, never as passed. Results the checks cannot judge (fairness of the underload split, comment-only constraints) are listed as open questions, not fixed silently.
@@ -495,7 +495,7 @@ constraints:
   A1: {mode: hard}
   A2: {mode: soft, weight: 10, allow_overload: false}
   A5: {mode: soft, weight: 1, bonus_per_extra: 0.1}
-  A10: {mode: soft, weight: 1, max_rank: 5}
+  A10: {mode: hard, weight: 1, max_rank: 5}
   B5: {mode: hard}
   B9: {mode: soft, weight: 1, reward: 0.05}
   B10: {mode: off, max_consecutive: 3}
@@ -662,7 +662,7 @@ Record the decision and date here when settled; update the affected sections.
 | D5 | Are real legacy data files available (for the converter and the medium example)? | yes (2026-10-18): Fall 2026 survey export; converter per §8.1, mapping confirmed by the user |
 | D6 | Do priority points $\pi_p$ apply to course preferences, time preferences, or both? | both (2026-10-21, P3): a single $\pi_p$ = `course_points/100`; no separate course and time priority; a difference adds a review row |
 | D7 | Default rank→weight strategy | `linear` (2026-10-21, P1: kept; no truncated-linear strategy) |
-| D8 | Courses ranked outside a professor's top 5 (old capstone: forbidden) | 2026-10-21, P1: soft A10 with `max_rank: 5` at level 2; coverage first |
+| D8 | Courses ranked outside a professor's top 5 (old capstone: forbidden) | 2026-11-09, supervisor: a rule. A10 defaults to `hard` with `max_rank: 5`; better a section unassigned, and named in the report (L6), than taught outside the top 5. Replaces 2026-10-21, P1 (soft at level 2, coverage first) |
 | D9 | Meaning of the legacy `MWForTR` column | 2026-10-21, P2: ignored; survey Q3 decides day families and mixing |
 | D10 | Golden tiny example vs. the thesis example (§3.4 of the 2025 report) | 2026-10-21, P4: keep our data; the thesis example contradicts itself (capacities in Tables 5 vs 6, C's load) |
 | D11 | Is a professor's day family (MWF / TR) a preference or a rule? | 2026-10-31, supervisor: a rule. B13 defaults to `hard`; survey Q3 answers 1–3 map to `forbid` mixing; A8 adds day-family capacity checks so Stage A only hands Stage B what fits |

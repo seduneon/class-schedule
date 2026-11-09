@@ -6,8 +6,8 @@ from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from scheduler.config import Config
-from scheduler.derived import is_eligible
+from scheduler.config import A10Settings, Config, Mode
+from scheduler.derived import is_eligible, outside_top_k
 from scheduler.domain import Assignment, Instance, SectionType
 
 
@@ -38,12 +38,17 @@ def explain_uncovered(
     loads: dict[str, float] = defaultdict(float)
     for a in assignments:
         loads[a.professor_id] += a.units
+    hard_top_k = config.mode("A10") is Mode.HARD
     eligible = [
         p
         for p in instance.professors
         if is_eligible(instance, config, p.id, course_id, section_type)
+        and not (hard_top_k and outside_top_k(instance, config, p.id, course_id, section_type))
     ]
     if not eligible:
+        if hard_top_k:
+            k_max = config.typed_settings("A10", A10Settings).max_rank
+            return f"no professor has it in their top {k_max}"
         return "nobody is eligible to teach it"
     units = instance.offering_info[(course_id, section_type)].units
     full = [p for p in eligible if loads[p.id] + units > p.load_max + 1e-9]

@@ -145,3 +145,10 @@ The Spring 2027 Stage A run ended with "Result: no hard violations." while all t
 - New SPEC §8.1.3 and D15: before anything goes to the supervisor, independent scripts (never importing `scheduler`, re-reading the raw Excel) run V1 conversion, V2 hard rules incl. A8 per professor and A8 conflict groups, V3 `report.xlsx` vs `assignments.csv`, V4 `run.json` provenance; the outcome goes to `VERIFICATION_<date>.md`, what is sent to `deliveries/<date>/`. Not-checked parts are never reported as passed.
 - CLAUDE.md: the delivery checklist (clean main, survey time patterns when `time_room.xlsx` is missing, `verify_all.py`, read the `Result:` line, record and archive). README: the command.
 - Why: the first Spring 2027 result broke A8 (7 level-400 courses on TR-only professors, 6 TR slots) and nobody noticed, because the time checks were skipped and the independent scripts covered A1–A4 only. The scripts themselves are term-specific and live in `data/private/<term>/verify/`.
+
+## Top-5 is a rule; unassigned sections in the report (2026-11-09, SPEC A10, L6, D8)
+Supervisor, after the Spring 2027 report: a course outside a professor's top 5 must not be assigned; a section left unassigned is better, and the report must name it.
+- **A10** now defaults to `hard` (`must`), replacing the 2026-10-21 soft default (D8). The builder and validator already supported `hard`; only the default changes. Coverage (A1) can now be below full: uncovered sections stay A1 errors.
+- **L6:** new `unassigned_sections` sheet in `report.xlsx` (course, title, type, label, capacity, units, reason); present and empty when everything is assigned.
+- `explain_uncovered` respects hard A10: it says "no professor has it in their top K" and no longer lists professors outside their top K as eligible.
+- SPEC §8.1.3: V2 now covers A10 and allows an unassigned section only with no free taker; V3 compares the new sheet with `assignments.csv`.
